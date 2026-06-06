@@ -4,9 +4,21 @@ interface MeDto {
   streakDays: number;
   totalWorkouts: number;
   soloMode: boolean;
+  isPremium?: boolean;
+  premiumUntil?: string | null;
   trainingMode: "solo" | "team" | null;
   team: { id: string; name: string; inviteCode: string } | null;
   achievements: Array<{ emoji: string; label: string }>;
+}
+
+interface PremiumDto {
+  isPremium: boolean;
+  premiumUntil: string | null;
+  priceStars: number;
+  days: number;
+  fsMultiplier: number;
+  botUsername: string;
+  features: Array<{ emoji: string; title: string; desc: string }>;
 }
 
 interface WorkoutDto {
@@ -64,6 +76,7 @@ let currentTab = "home";
 let me: MeDto | null = null;
 let workout: WorkoutDto | null = null;
 let team: TeamDto["team"] = null;
+let premium: PremiumDto | null = null;
 
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 let timerSeconds = 0;
@@ -206,6 +219,7 @@ function renderHome(): void {
       <div class="stat"><span class="stat-value">${me.streakDays}</span><span class="stat-label">Streak</span></div>
       <div class="stat"><span class="stat-value">${me.totalWorkouts}</span><span class="stat-label">Тренировок</span></div>
     </div>
+    ${me.isPremium ? `<div class="premium-badge">⭐ Premium</div>` : ""}
     <div class="card">
       <h2>${me.soloMode && !me.team ? "🏃 Solo режим" : `🤝 ${escapeHtml(me.team!.name)}`}</h2>
       ${me.team ? `<p>Код: <b>${me.team.inviteCode}</b></p>` : `<p>Тренируешься один</p>`}
@@ -618,6 +632,84 @@ async function confirmLeave(): Promise<void> {
   }
 }
 
+async function loadPremium(): Promise<void> {
+  try {
+    premium = await api<PremiumDto>("/api/premium");
+  } catch {
+    premium = null;
+  }
+}
+
+async function buyPremium(): Promise<void> {
+  if (!premium) await loadPremium();
+  if (!premium) {
+    tg?.showAlert("Откройте через Telegram");
+    return;
+  }
+
+  try {
+    const { invoiceLink } = await api<{ invoiceLink: string }>("/api/premium/invoice", {
+      method: "POST",
+    });
+    if (tg?.openInvoice) {
+      tg.openInvoice(invoiceLink, (status) => {
+        if (status === "paid") {
+          void loadData().then(() => {
+            void loadPremium().then(() => renderPremium());
+          });
+        }
+      });
+      return;
+    }
+  } catch {
+    /* fallback to bot */
+  }
+
+  const link = `https://t.me/${premium.botUsername}?start=premium`;
+  if (tg?.openTelegramLink) tg.openTelegramLink(link);
+  else window.open(link, "_blank");
+}
+
+function renderPremium(): void {
+  if (!me) {
+    content.innerHTML = `<p class="error">Откройте через Telegram</p>`;
+    return;
+  }
+
+  const p = premium;
+  const untilStr =
+    p?.premiumUntil && p.isPremium
+      ? new Date(p.premiumUntil).toLocaleDateString("ru-RU")
+      : null;
+
+  const featuresHtml =
+    p?.features
+      .map(
+        (f) =>
+          `<div class="premium-feature"><span class="premium-feature-icon">${f.emoji}</span><div><strong>${escapeHtml(f.title)}</strong><p>${escapeHtml(f.desc)}</p></div></div>`
+      )
+      .join("") ?? "";
+
+  content.innerHTML = `
+    <div class="card premium-card">
+      <h2>⭐ FitSquad Premium</h2>
+      ${
+        p?.isPremium
+          ? `<p class="premium-active">Активен до <b>${untilStr}</b></p>
+             <p class="hint">FS Boost ×${p.fsMultiplier} · AI-тренер Pro · AI-фото</p>
+             <button type="button" class="btn btn-secondary" id="extend-premium-btn">Продлить — ${p.priceStars} ⭐</button>`
+          : `<p>${p?.days ?? 30} дней за <b>${p?.priceStars ?? 99} ⭐</b></p>
+             <div class="premium-features">${featuresHtml}</div>
+             <button type="button" class="btn btn-primary" id="buy-premium-btn">⭐ Купить Premium</button>`
+      }
+    </div>
+    ${!p?.isPremium ? `<p class="hint">Оплата через Telegram Stars. Без карты.</p>` : ""}
+  `;
+
+  document.getElementById("buy-premium-btn")?.addEventListener("click", () => void buyPremium());
+  document.getElementById("extend-premium-btn")?.addEventListener("click", () => void buyPremium());
+}
+
 async function confirmDisband(): Promise<void> {
   const box = document.getElementById("team-confirm");
   try {
@@ -648,6 +740,9 @@ function render(): void {
     case "team":
       void renderTeam();
       break;
+    case "premium":
+      void loadPremium().then(() => renderPremium());
+      break;
     default:
       renderHome();
   }
@@ -669,6 +764,10 @@ async function init(): Promise<void> {
     currentTab = "workout";
     document.querySelector('[data-tab="workout"]')?.classList.add("active");
     document.querySelector('[data-tab="home"]')?.classList.remove("active");
+  } else if (startParam === "premium") {
+    currentTab = "premium";
+    document.querySelectorAll(".tab").forEach((el) => el.classList.remove("active"));
+    document.querySelector('[data-tab="premium"]')?.classList.add("active");
   }
 
   await loadData();

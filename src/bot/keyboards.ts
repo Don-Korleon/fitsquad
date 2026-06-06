@@ -83,6 +83,10 @@ export function soloKeyboard(): InlineKeyboard {
   return kb;
 }
 
+export function premiumKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("⭐ Купить Premium", "premium:buy");
+}
+
 export function createTeamNameKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("💪 FitSquad", "team:name:FitSquad")

@@ -6,13 +6,15 @@ import {
   countTeamWorkoutsCompleted,
   getUser,
   grantAchievement,
+  isPremium,
   updateStreak,
 } from "../db/index.js";
-
+import { canUseAiPhotoVerify } from "./premium.js";
 export interface WorkoutReward {
   baseFs: number;
   streakBonus: number;
   achievementBonus: number;
+  premiumBonus: number;
   newAchievements: Array<{ type: string; label: string; emoji: string; bonusFs: number }>;
   totalFs: number;
   streakDays: number;
@@ -48,7 +50,10 @@ export function rewardWorkoutComplete(userId: number): WorkoutReward {
     newAchievements.push({ type: ach.type, label: ach.label, emoji: ach.emoji, bonusFs: ach.bonusFs });
   }
 
-  const totalFs = baseFs + streakBonus + achievementBonus;
+  const subtotal = baseFs + streakBonus + achievementBonus;
+  const multiplier = isPremium(userId) ? config.premiumFsMultiplier : 1;
+  const totalFs = Math.round(subtotal * multiplier);
+  const premiumBonus = totalFs - subtotal;
   addFsTokens(userId, totalFs);
 
   const updatedUser = getUser(userId);
@@ -63,6 +68,7 @@ export function rewardWorkoutComplete(userId: number): WorkoutReward {
     baseFs,
     streakBonus,
     achievementBonus,
+    premiumBonus,
     newAchievements,
     totalFs: totalFs + (newAchievements.find((a) => a.type === "fs_100")?.bonusFs ?? 0),
     streakDays,
@@ -70,8 +76,11 @@ export function rewardWorkoutComplete(userId: number): WorkoutReward {
 }
 
 export function rewardPhotoVerified(userId: number): number {
-  addFsTokens(userId, config.fsPhotoVerified);
-  return config.fsPhotoVerified;
+  const amount = Math.round(
+    config.fsPhotoVerified * (isPremium(userId) ? config.premiumFsMultiplier : 1)
+  );
+  addFsTokens(userId, amount);
+  return amount;
 }
 
 export function rewardTeamBonus(memberIds: number[]): number {
@@ -89,7 +98,7 @@ export interface PhotoVerifyResult {
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 
-export async function verifyWorkoutPhoto(photoPath: string): Promise<PhotoVerifyResult> {
+export async function verifyWorkoutPhoto(photoPath: string, userId?: number): Promise<PhotoVerifyResult> {
   if (!fs.existsSync(photoPath)) {
     return { verified: false, confidence: 0, reason: "Файл не найден" };
   }
@@ -102,6 +111,10 @@ export async function verifyWorkoutPhoto(photoPath: string): Promise<PhotoVerify
   const stat = fs.statSync(photoPath);
   if (stat.size < 10_000) {
     return { verified: false, confidence: 0.2, reason: "Фото слишком маленькое" };
+  }
+
+  if (userId !== undefined && canUseAiPhotoVerify(userId)) {
+    return verifyWithOpenAi(photoPath);
   }
 
   if (config.apiMode === "live" && config.openaiApiKey) {

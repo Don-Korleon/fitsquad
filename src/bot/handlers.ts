@@ -14,6 +14,7 @@ import {
   getUserWorkoutView,
   getWorkoutLogs,
   getTrainingContext,
+  isPremium,
   isSoloModeEnabled,
   joinTeam,
   assertCanJoinTeam,
@@ -36,6 +37,7 @@ import {
   createTeamNameKeyboard,
   mainMenuKeyboard,
   musicKeyboard,
+  premiumKeyboard,
   soloKeyboard,
   teamConfirmDisbandKeyboard,
   teamConfirmLeaveKeyboard,
@@ -43,6 +45,7 @@ import {
   workoutKeyboard,
 } from "./keyboards.js";
 import { helpText, statsText, teamText, WELCOME_TEXT, workoutCompleteText } from "./messages.js";
+import { premiumDescription, sendPremiumInvoice } from "./premium.js";
 
 type SessionState = "awaiting_invite_code" | "awaiting_photo";
 
@@ -72,6 +75,7 @@ function buildStats(userId: number) {
     fsTokens: user?.fs_tokens ?? 0,
     streakDays: user?.streak_days ?? 0,
     totalWorkouts: user?.total_workouts ?? 0,
+    isPremium: isPremium(userId),
     achievements,
   };
 }
@@ -101,6 +105,11 @@ export function registerHandlers(bot: Bot): void {
   bot.command("start", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
     const payload = ctx.match?.trim();
+    if (payload === "premium") {
+      await ctx.reply(premiumDescription(), { parse_mode: "Markdown", reply_markup: premiumKeyboard() });
+      await sendPremiumInvoice(bot, ctx.chat!.id);
+      return;
+    }
     if (payload?.startsWith("join_")) {
       const code = payload.slice(5).toUpperCase();
       const joined = joinTeamByCode(ctx.from!.id, code);
@@ -425,7 +434,7 @@ export function registerHandlers(bot: Bot): void {
 
     try {
       const localPath = await downloadPhoto(bot, largest.file_id);
-      const result = await verifyWorkoutPhoto(localPath);
+      const result = await verifyWorkoutPhoto(localPath, ctx.from!.id);
       if (!result.verified) {
         await ctx.reply(`❌ ${result.reason}. Попробуйте другое фото.`);
         return;
@@ -544,6 +553,7 @@ export async function setupBotCommands(bot: Bot): Promise<void> {
     { command: "music", description: "Музыка боевиков 90-х" },
     { command: "motivate", description: "Мотивация AI" },
     { command: "stats", description: "Статистика и FS" },
+    { command: "premium", description: "Premium подписка ⭐" },
     { command: "help", description: "Справка" },
   ]);
 }

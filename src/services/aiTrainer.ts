@@ -1,8 +1,8 @@
 import { config } from "../config.js";
 import { getUser, getUserTeam, getTodayWorkoutForTeam, todayKey } from "../db/index.js";
 import { getExercise } from "./exercises.js";
+import { canUseLiveAi } from "./premium.js";
 import type { AiCoachMessage } from "../types.js";
-
 const MOCK_MOTIVATION = [
   "💎 {name}, каждый подход — +FS. Сегодня цель: {exercise}!",
   "🚀 {name}, команда «{team}» уже на старте. Покажи класс!",
@@ -119,7 +119,7 @@ export async function getMotivationMessage(userId: number): Promise<AiCoachMessa
     fs: user?.fs_tokens ?? 0,
   };
 
-  if (config.apiMode === "live" && config.openaiApiKey) {
+  if (canUseLiveAi(userId)) {
     const ai = await askOpenAi(context, userId);
     if (ai) return ai;
   }
@@ -137,7 +137,7 @@ export async function getWorkoutCoachTip(
 ): Promise<AiCoachMessage> {
   const exercise = getExercise(exerciseSlug);
 
-  if (config.apiMode === "live" && config.openaiApiKey && exercise) {
+  if (userId !== undefined && canUseLiveAi(userId) && exercise) {
     try {
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",

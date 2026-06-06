@@ -16,6 +16,7 @@ export const WELCOME_TEXT = `🏋️ <b>FitSquad</b> — социальная ф
 /workout — тренировка дня
 /motivate — мотивация от AI
 /stats — статистика и FS
+/premium — Premium ⭐
 /help — справка`;
 
 export function helpText(): string {
@@ -36,6 +37,10 @@ export function helpText(): string {
 • +${config.fsPhotoVerified} FS — верификация фото
 • +${config.fsTeamBonus} FS — вся команда выполнила тренировку
 • +${config.fsStreakBonus} FS — бонус за streak (со 2-го дня)
+• Premium: +${Math.round((config.premiumFsMultiplier - 1) * 100)}% FS за тренировки и фото
+
+<b>Premium ⭐</b>
+AI-тренер Pro, AI-верификация фото, FS Boost — /premium (${config.premiumPriceStars} ⭐ / ${config.premiumDays} дн.)
 
 <b>Упражнения V1</b>
 Отжимания, приседания, планка, прыжки, бёрпи — к каждому приложена фото-инструкция в /workout и Mini App.
@@ -49,6 +54,7 @@ export function statsText(profile: {
   fsTokens: number;
   streakDays: number;
   totalWorkouts: number;
+  isPremium?: boolean;
   achievements: Array<{ emoji: string; label: string }>;
 }): string {
   const name = profile.firstName ?? "Атлет";
@@ -57,14 +63,16 @@ export function statsText(profile: {
       ? profile.achievements.map((a) => `${a.emoji} ${a.label}`).join("\n")
       : "Пока нет — выполни первую тренировку!";
 
-  return `📊 *Статистика ${escapeMd(name)}*
+  const premiumLine = profile.isPremium ? "\n⭐ *Premium активен*" : "";
+
+  return `📊 *Статистика ${escapeMd(name)}*${premiumLine}
 
 💎 FS-tokens: *${profile.fsTokens}*
 🔥 Streak: *${profile.streakDays}* дн.
 ✅ Тренировок: *${profile.totalWorkouts}*
 
 *Достижения:*
-${achLines}`;
+${achLines}${profile.isPremium ? "" : `\n\n/premium — AI-тренер Pro и FS Boost`}`;
 }
 
 export function teamText(team: {

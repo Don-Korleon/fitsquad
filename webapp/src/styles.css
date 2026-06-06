@@ -265,6 +265,50 @@ body {
   color: var(--accent-text);
 }
 
+.premium-badge {
+  text-align: center;
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #ffd70033, #ff8c0033);
+  border: 1px solid #ffd70066;
+  border-radius: 8px;
+  font-weight: 600;
+  color: #ffd700;
+}
+
+.premium-card h2 {
+  margin-bottom: 8px;
+}
+
+.premium-features {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.premium-feature {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.premium-feature-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.premium-feature p {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.premium-active {
+  color: #ffd700;
+  font-size: 1.05rem;
+}
+
 .btn-secondary {
   background: var(--secondary);
   color: var(--text);

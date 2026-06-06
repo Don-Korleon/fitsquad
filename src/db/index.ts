@@ -105,6 +105,11 @@ try {
 } catch {
   /* exists */
 }
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN premium_until TEXT`);
+} catch {
+  /* exists */
+}
 
 const SOLO_INVITE_PREFIX = "SOLO";
 
@@ -141,12 +146,39 @@ export function getUser(telegramId: number) {
         last_workout_date: string | null;
         total_workouts: number;
         solo_mode: number;
+        premium_until: string | null;
       }
     | undefined;
 }
 
 export function isSoloModeEnabled(userId: number): boolean {
   return !!getUser(userId)?.solo_mode;
+}
+
+export function isPremium(userId: number): boolean {
+  const until = getUser(userId)?.premium_until;
+  if (!until) return false;
+  return new Date(until) > new Date();
+}
+
+export function getPremiumStatus(userId: number) {
+  const until = getUser(userId)?.premium_until ?? null;
+  const active = until ? new Date(until) > new Date() : false;
+  return { isPremium: active, premiumUntil: active ? until : null };
+}
+
+export function grantPremium(userId: number, days: number): { until: string } {
+  const now = new Date();
+  const user = getUser(userId);
+  let start = now;
+  if (user?.premium_until) {
+    const current = new Date(user.premium_until);
+    if (current > now) start = current;
+  }
+  const until = new Date(start.getTime() + days * 86_400_000);
+  const untilIso = until.toISOString();
+  db.prepare(`UPDATE users SET premium_until = ? WHERE telegram_id = ?`).run(untilIso, userId);
+  return { until: untilIso };
 }
 
 /** Нельзя вступить/создать команду, пока включён Solo */

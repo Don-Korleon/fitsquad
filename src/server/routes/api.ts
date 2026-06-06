@@ -23,6 +23,7 @@ import {
   hasUserCompletedExerciseToday,
   hasUserPhotoVerifiedExerciseToday,
   isSoloModeEnabled,
+  isPremium,
   isWorkoutFullyCompleted,
   leaveTeam,
   markWorkoutCompleted,
@@ -37,6 +38,8 @@ import {
   rewardWorkoutComplete,
   verifyWorkoutPhoto,
 } from "../../services/gamification.js";
+import { getUserPremiumInfo } from "../../services/premium.js";
+import { createPremiumInvoiceLink } from "../../bot/premium.js";
 import { validateInitData } from "../../utils/telegramAuth.js";
 
 export const apiRouter = Router();
@@ -68,6 +71,8 @@ apiRouter.get("/health", (_req, res) => {
     name: "FitSquad",
     mode: config.apiMode,
     photoVerify: config.apiMode === "live" && config.openaiApiKey ? "openai" : "auto",
+    premiumPriceStars: config.premiumPriceStars,
+    premiumDays: config.premiumDays,
     webappUrl: config.webappUrl,
     webappIsHttps: config.webappIsHttps,
     botTokenSet: !!config.botToken,
@@ -106,6 +111,8 @@ apiRouter.get("/me", (req, res) => {
     streakDays: dbUser?.streak_days ?? 0,
     totalWorkouts: dbUser?.total_workouts ?? 0,
     soloMode: isSoloModeEnabled(user.id),
+    isPremium: isPremium(user.id),
+    premiumUntil: getUserPremiumInfo(user.id).premiumUntil,
     trainingMode: team ? "team" : isSoloModeEnabled(user.id) ? "solo" : null,
     team: team ? { id: team.id, name: team.name, inviteCode: team.invite_code } : null,
     achievements,
@@ -377,7 +384,7 @@ apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) =
   const finalPath = path.join(config.uploadsDir, `${req.file.filename}${ext}`);
   fs.renameSync(req.file.path, finalPath);
 
-  const result = await verifyWorkoutPhoto(finalPath);
+  const result = await verifyWorkoutPhoto(finalPath, user.id);
   if (!result.verified) {
     fs.unlinkSync(finalPath);
     res.status(400).json({ error: result.reason, confidence: result.confidence });
@@ -428,4 +435,27 @@ apiRouter.get("/leaderboard", (req, res) => {
     streakDays: m.streak_days,
   }));
   res.json({ leaderboard });
+});
+
+apiRouter.get("/premium", (req, res) => {
+  const user = requireUser(req.headers["x-telegram-init-data"] as string);
+  if (!user) {
+    res.status(401).json({ error: "Invalid init data" });
+    return;
+  }
+  res.json(getUserPremiumInfo(user.id));
+});
+
+apiRouter.post("/premium/invoice", async (req, res) => {
+  const user = requireUser(req.headers["x-telegram-init-data"] as string);
+  if (!user) {
+    res.status(401).json({ error: "Invalid init data" });
+    return;
+  }
+  const invoiceLink = await createPremiumInvoiceLink();
+  if (!invoiceLink) {
+    res.status(503).json({ error: "Оплата временно недоступна. Используйте /premium в боте." });
+    return;
+  }
+  res.json({ invoiceLink });
 });

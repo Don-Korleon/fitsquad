@@ -1,6 +1,7 @@
 import { Bot } from "grammy";
 import { config } from "../config.js";
 import { registerHandlers, setupBotCommands } from "./handlers.js";
+import { registerPremiumHandlers, setPremiumBot } from "./premium.js";
 
 export function createBot(): Bot {
   if (!config.botToken) {
@@ -14,6 +15,8 @@ export function createBot(): Bot {
       .catch(() => {});
   });
   registerHandlers(bot);
+  registerPremiumHandlers(bot);
+  setPremiumBot(bot);
   return bot;
 }
 
