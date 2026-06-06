@@ -194,7 +194,7 @@ export function registerHandlers(bot: Bot): void {
       await ctx.reply("Тренировка не найдена.");
       return;
     }
-    const tip = await getWorkoutCoachTip(workout.exercise_slug, 1);
+    const tip = await getWorkoutCoachTip(workout.exercise_slug, 1, ctx.from!.id);
     await ctx.reply(`🤖 ${tip.text}`);
   });
 

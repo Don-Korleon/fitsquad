@@ -291,7 +291,7 @@ apiRouter.get("/workout/:id/coach", async (req, res) => {
     return;
   }
   const setNum = Number(req.query.set ?? 1);
-  const tip = await getWorkoutCoachTip(workout.exercise_slug, setNum);
+  const tip = await getWorkoutCoachTip(workout.exercise_slug, setNum, user.id);
   res.json(tip);
 });
 
