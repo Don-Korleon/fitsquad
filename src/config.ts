@@ -19,11 +19,26 @@ const resolvedPublicUrl = (
   process.env.PUBLIC_URL ??
   (vercelHttps || "http://localhost:3000")
 ).replace(/\/$/, "");
-const resolvedWebappUrl = (
-  process.env.WEBAPP_URL ??
-  (resolvedPublicUrl !== "http://localhost:3000"
+
+function isStaleWebappUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.includes("ngrok") ||
+    lower.includes("your-domain.com") ||
+    lower.includes("xxxx.ngrok")
+  );
+}
+
+const autoWebappUrl =
+  resolvedPublicUrl !== "http://localhost:3000"
     ? `${resolvedPublicUrl}/webapp/`
-    : "http://localhost:3000/webapp/")
+    : "http://localhost:3000/webapp/";
+
+const envWebappUrl = process.env.WEBAPP_URL?.trim();
+const resolvedWebappUrl = (
+  envWebappUrl && !(isVercel && isStaleWebappUrl(envWebappUrl))
+    ? envWebappUrl
+    : autoWebappUrl
 ).replace(/\/?$/, "/");
 const dataRoot = isVercel ? "/tmp/fitsquad" : path.join(rootDir, "data");
 const uploadsRoot = isVercel ? "/tmp/fitsquad/uploads" : path.join(rootDir, "uploads");
