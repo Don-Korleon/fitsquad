@@ -59,7 +59,7 @@ export function statsText(profile: {
 🔥 Streak: *${profile.streakDays}* дн.
 ✅ Тренировок: *${profile.totalWorkouts}*
 
-<b>Достижения:</b>
+*Достижения:*
 ${achLines}`;
 }
 
@@ -79,7 +79,7 @@ export function teamText(team: {
 
 Код приглашения: \`${team.inviteCode}\`
 
-<b>Участники (${team.members.length}/5):</b>
+*Участники (${team.members.length}/5):*
 ${memberLines}`;
 }
 
