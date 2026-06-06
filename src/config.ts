@@ -46,7 +46,7 @@ const uploadsRoot = isVercel ? "/tmp/fitsquad/uploads" : path.join(rootDir, "upl
 export const config = {
   botToken: process.env.BOT_TOKEN ?? "",
   botUsername: process.env.BOT_USERNAME ?? "fitsquad_bot",
-  webhookSecret: process.env.WEBHOOK_SECRET ?? "dev-secret",
+  webhookSecret: (process.env.WEBHOOK_SECRET ?? "dev-secret").trim(),
   publicUrl: resolvedPublicUrl,
   port: Number(process.env.PORT ?? 3000),
   nodeEnv: process.env.NODE_ENV ?? "development",

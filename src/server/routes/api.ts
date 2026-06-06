@@ -60,6 +60,9 @@ apiRouter.get("/health", (_req, res) => {
     mode: config.apiMode,
     webappUrl: config.webappUrl,
     webappIsHttps: config.webappIsHttps,
+    botTokenSet: !!config.botToken,
+    webhookPath: `/webhook/${config.webhookSecret.slice(0, 4)}…`,
+    publicUrl: config.publicUrl,
   });
 });
 

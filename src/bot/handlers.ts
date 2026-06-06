@@ -95,7 +95,7 @@ export function registerHandlers(bot: Bot): void {
       }
     }
     await ctx.reply(WELCOME_TEXT, {
-      parse_mode: "Markdown",
+      parse_mode: "HTML",
       reply_markup: mainMenuKeyboard(),
     });
   });
