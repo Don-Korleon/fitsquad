@@ -1,7 +1,13 @@
 import { Bot } from "grammy";
 import { config } from "../config.js";
 import { registerHandlers, setupBotCommands } from "./handlers.js";
-import { registerAppssVerifyHandlers } from "./appssVerify.js";
+import {
+  fetchBotCommandNames,
+  parseAppssStartParam,
+  registerAppssVerifyHandlers,
+  replyAppssVerifyCode,
+  setupAppssVerifyCommand,
+} from "./appssVerify.js";
 import { registerPremiumHandlers, setPremiumBot } from "./premium.js";
 
 export function createBot(): Bot {
@@ -15,8 +21,8 @@ export function createBot(): Bot {
       ?.reply("⚠️ Ошибка. Попробуйте /start или /help")
       .catch(() => {});
   });
-  registerHandlers(bot);
   registerAppssVerifyHandlers(bot);
+  registerHandlers(bot);
   registerPremiumHandlers(bot);
   setPremiumBot(bot);
   return bot;
@@ -37,4 +43,5 @@ export async function resolveBotUsername(bot: Bot): Promise<void> {
 export async function initBot(bot: Bot): Promise<void> {
   await resolveBotUsername(bot);
   await setupBotCommands(bot);
+  await setupAppssVerifyCommand(bot);
 }

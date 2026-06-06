@@ -45,6 +45,7 @@ import {
 } from "./keyboards.js";
 import { helpText, statsText, teamText, WELCOME_TEXT, workoutCompleteText } from "./messages.js";
 import { premiumDescription, sendPremiumInvoice } from "./premium.js";
+import { parseAppssStartParam, replyAppssVerifyCode } from "./appssVerify.js";
 
 type SessionState = "awaiting_invite_code" | "awaiting_photo";
 
@@ -107,6 +108,11 @@ export function registerHandlers(bot: Bot): void {
     if (payload === "premium") {
       await ctx.reply(premiumDescription(), { parse_mode: "Markdown", reply_markup: premiumKeyboard() });
       await sendPremiumInvoice(bot, ctx.chat!.id);
+      return;
+    }
+    const appssCode = payload ? parseAppssStartParam(payload) : null;
+    if (payload === "appss_verify" || appssCode !== null) {
+      await replyAppssVerifyCode(ctx, appssCode ?? undefined);
       return;
     }
     if (payload?.startsWith("join_")) {

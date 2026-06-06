@@ -39,7 +39,7 @@ import {
   verifyWorkoutPhoto,
 } from "../../services/gamification.js";
 import { getUserPremiumInfo } from "../../services/premium.js";
-import { resolveAppssVerifyCode } from "../../bot/appssVerify.js";
+import { resolveAppssVerifyCode, fetchBotCommandNames, APPSS_COMMAND } from "../../bot/appssVerify.js";
 import { createPremiumInvoiceLink } from "../../bot/premium.js";
 import { validateInitData } from "../../utils/telegramAuth.js";
 
@@ -66,7 +66,8 @@ function workoutIdParam(raw: string | string[]): string {
   return Array.isArray(raw) ? raw[0]! : raw;
 }
 
-apiRouter.get("/health", (_req, res) => {
+apiRouter.get("/health", async (_req, res) => {
+  const botCommands = await fetchBotCommandNames();
   res.json({
     ok: true,
     name: "FitSquad",
@@ -77,6 +78,9 @@ apiRouter.get("/health", (_req, res) => {
     webappUrl: config.webappUrl,
     webappIsHttps: config.webappIsHttps,
     botTokenSet: !!config.botToken,
+    botUsername: config.botUsername,
+    appssVerifyCommand: botCommands.includes(APPSS_COMMAND),
+    botCommands,
     webhookPath: `/webhook/${config.webhookSecret.slice(0, 4)}…`,
     publicUrl: config.publicUrl,
   });
