@@ -15,6 +15,7 @@ import {
   getTrainingContext,
   isSoloModeEnabled,
   joinTeam,
+  assertCanJoinTeam,
   createTeam,
   disableSoloMode,
   enableSoloMode,
@@ -101,10 +102,16 @@ export function registerHandlers(bot: Bot): void {
     const payload = ctx.match?.trim();
     if (payload?.startsWith("join_")) {
       const code = payload.slice(5).toUpperCase();
-      const team = joinTeamByCode(ctx.from!.id, code);
-      if (team) {
-        await ctx.reply(`✅ Вы вступили в команду «${team.name}»!`, {
-          reply_markup: teamKeyboard(true, team.captain_id === ctx.from!.id),
+      const joined = joinTeamByCode(ctx.from!.id, code);
+      if (joined.ok) {
+        await ctx.reply(`✅ Вы вступили в команду «${joined.team.name}»!`, {
+          reply_markup: teamKeyboard(true, joined.team.captain_id === ctx.from!.id),
+        });
+        return;
+      }
+      if (joined.error) {
+        await ctx.reply(`❌ ${joined.error}`, {
+          reply_markup: isSoloModeEnabled(ctx.from!.id) ? soloKeyboard() : teamKeyboard(false),
         });
         return;
       }
@@ -132,7 +139,7 @@ export function registerHandlers(bot: Bot): void {
       return;
     }
     await ctx.reply(
-      "🏃 *Solo режим включён*\n\nТренируйся один — /workout\n\nКогда захочешь команду — /team",
+      "🏃 *Solo режим включён*\n\nТренируйся один — /workout\n\nЧтобы вступить в команду — сначала выключи Solo: /team → ❌ Выключить Solo",
       { parse_mode: "Markdown", reply_markup: soloKeyboard() }
     );
   });
@@ -223,26 +230,41 @@ export function registerHandlers(bot: Bot): void {
 
   bot.callbackQuery(/^team:create$/, async (ctx) => {
     await ctx.answerCallbackQuery();
+    const check = assertCanJoinTeam(ctx.from!.id);
+    if (!check.ok) {
+      await ctx.reply(check.error!, {
+        reply_markup: isSoloModeEnabled(ctx.from!.id) ? soloKeyboard() : teamKeyboard(false),
+      });
+      return;
+    }
     await ctx.reply("Выберите название команды:", { reply_markup: createTeamNameKeyboard() });
   });
 
   bot.callbackQuery(/^team:name:(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const name = ctx.match![1]!;
-    const existing = getUserTeam(ctx.from!.id);
-    if (existing) {
-      await ctx.reply("Вы уже в команде.");
+    const result = createTeam(ctx.from!.id, name);
+    if (!result.ok || !result.inviteCode) {
+      await ctx.reply(result.error ?? "Не удалось создать команду", {
+        reply_markup: isSoloModeEnabled(ctx.from!.id) ? soloKeyboard() : teamKeyboard(false),
+      });
       return;
     }
-    const { inviteCode } = createTeam(ctx.from!.id, name);
     await ctx.reply(
-      `✅ Команда «${name}» создана!\n\nКод приглашения: \`${inviteCode}\`\n\nПоделитесь: t.me/${config.botUsername}?start=join_${inviteCode}`,
+      `✅ Команда «${name}» создана!\n\nКод приглашения: \`${result.inviteCode}\`\n\nПоделитесь: t.me/${config.botUsername}?start=join_${result.inviteCode}`,
       { parse_mode: "Markdown", reply_markup: teamKeyboard(true, true) }
     );
   });
 
   bot.callbackQuery(/^team:join$/, async (ctx) => {
     await ctx.answerCallbackQuery();
+    const check = assertCanJoinTeam(ctx.from!.id);
+    if (!check.ok) {
+      await ctx.reply(check.error!, {
+        reply_markup: isSoloModeEnabled(ctx.from!.id) ? soloKeyboard() : teamKeyboard(false),
+      });
+      return;
+    }
     userState.set(ctx.from!.id, "awaiting_invite_code");
     await ctx.reply("Введите 6-значный код приглашения:");
   });
@@ -362,14 +384,14 @@ export function registerHandlers(bot: Bot): void {
     async (ctx) => {
       userState.delete(ctx.from!.id);
       const code = ctx.message.text.trim().toUpperCase();
-      const team = joinTeamByCode(ctx.from!.id, code);
-      if (team) {
-        await ctx.reply(`✅ Вы вступили в команду «${team.name}»!`, {
+      const joined = joinTeamByCode(ctx.from!.id, code);
+      if (joined.ok) {
+        await ctx.reply(`✅ Вы вступили в команду «${joined.team.name}»!`, {
           reply_markup: teamKeyboard(true, false),
         });
       } else {
-        await ctx.reply("❌ Команда не найдена или уже заполнена.", {
-          reply_markup: teamKeyboard(false),
+        await ctx.reply(`❌ ${joined.error ?? "Команда не найдена или уже заполнена."}`, {
+          reply_markup: isSoloModeEnabled(ctx.from!.id) ? soloKeyboard() : teamKeyboard(false),
         });
       }
     }
@@ -421,12 +443,21 @@ export function registerHandlers(bot: Bot): void {
   });
 }
 
-function joinTeamByCode(userId: number, code: string) {
+function joinTeamByCode(
+  userId: number,
+  code: string
+):
+  | { ok: true; team: { id: string; name: string; invite_code: string; captain_id: number } }
+  | { ok: false; error: string } {
   const team = getTeamByInviteCode(code);
-  if (!team) return null;
+  if (!team) {
+    return { ok: false, error: "Команда не найдена или код неверный" };
+  }
   const result = joinTeam(team.id, userId);
-  if (!result.ok) return null;
-  return team;
+  if (!result.ok) {
+    return { ok: false, error: result.error ?? "Не удалось вступить в команду" };
+  }
+  return { ok: true, team };
 }
 
 async function sendTeamInfo(ctx: Context): Promise<void> {
@@ -434,7 +465,7 @@ async function sendTeamInfo(ctx: Context): Promise<void> {
   if (!view) {
     if (isSoloModeEnabled(ctx.from!.id)) {
       await ctx.reply(
-        "🏃 *Solo режим* — тренируешься один.\n\n/workout — тренировка дня",
+        "🏃 *Solo режим* — тренируешься один.\n\n/workout — тренировка дня\n\n_Чтобы вступить в команду — сначала выключи Solo_",
         { parse_mode: "Markdown", reply_markup: soloKeyboard() }
       );
       return;

@@ -129,6 +129,31 @@ export function isSoloModeEnabled(userId: number): boolean {
   return !!getUser(userId)?.solo_mode;
 }
 
+/** Нельзя вступить/создать команду, пока включён Solo */
+export function assertCanJoinTeam(userId: number): { ok: boolean; error?: string } {
+  if (isSoloModeEnabled(userId)) {
+    return {
+      ok: false,
+      error: "Включён Solo режим. Сначала выключите его — /team → ❌ Выключить Solo",
+    };
+  }
+  if (getUserTeam(userId)) {
+    return { ok: false, error: "Вы уже в команде" };
+  }
+  return { ok: true };
+}
+
+/** Нельзя включить Solo, пока пользователь в команде */
+export function assertCanEnableSolo(userId: number): { ok: boolean; error?: string } {
+  if (getUserTeam(userId)) {
+    return { ok: false, error: "Сначала выйдите из команды" };
+  }
+  if (isSoloModeEnabled(userId)) {
+    return { ok: false, error: "Solo режим уже включён" };
+  }
+  return { ok: true };
+}
+
 function clearSoloMode(userId: number): void {
   db.prepare(`UPDATE users SET solo_mode = 0 WHERE telegram_id = ?`).run(userId);
   const teamId = soloTeamId(userId);
@@ -157,9 +182,8 @@ export function ensureSoloTeam(userId: number) {
 }
 
 export function enableSoloMode(userId: number): { ok: boolean; error?: string } {
-  if (getUserTeam(userId)) {
-    return { ok: false, error: "Сначала выйдите из команды" };
-  }
+  const check = assertCanEnableSolo(userId);
+  if (!check.ok) return check;
   upsertUser(userId);
   db.prepare(`UPDATE users SET solo_mode = 1 WHERE telegram_id = ?`).run(userId);
   ensureSoloTeam(userId);
@@ -217,8 +241,13 @@ export function updateStreak(telegramId: number): number {
   return streak;
 }
 
-export function createTeam(captainId: number, name: string): { id: string; inviteCode: string } {
-  clearSoloMode(captainId);
+export function createTeam(
+  captainId: number,
+  name: string
+): { ok: boolean; error?: string; id?: string; inviteCode?: string } {
+  const check = assertCanJoinTeam(captainId);
+  if (!check.ok) return check;
+
   const id = uuidv4();
   let inviteCode = generateInviteCode();
   while (getTeamByInviteCode(inviteCode)) {
@@ -231,7 +260,7 @@ export function createTeam(captainId: number, name: string): { id: string; invit
     captainId
   );
   db.prepare(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`).run(id, captainId);
-  return { id, inviteCode };
+  return { ok: true, id, inviteCode };
 }
 
 export function getTeamByInviteCode(code: string) {
@@ -286,15 +315,14 @@ export function joinTeam(teamId: string, userId: number): { ok: boolean; error?:
   if (!team || isSoloTeam(team as { id: string; invite_code: string })) {
     return { ok: false, error: "Команда не найдена" };
   }
+  const soloCheck = assertCanJoinTeam(userId);
+  if (!soloCheck.ok) return soloCheck;
+
   const count = getTeamMemberCount(teamId);
   if (count >= config.maxTeamSize) {
     return { ok: false, error: "Команда заполнена (макс. 5 человек)" };
   }
-  const existing = getUserTeam(userId);
-  if (existing) {
-    return { ok: false, error: "Вы уже в команде" };
-  }
-  clearSoloMode(userId);
+
   db.prepare(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`).run(teamId, userId);
   return { ok: true };
 }

@@ -79,8 +79,6 @@ export function musicKeyboard(workoutId?: string): InlineKeyboard {
 export function soloKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard();
   inlineWebApp(kb, "🏋️ Тренировка", "workout");
-  kb.row().text("➕ Создать команду", "team:create");
-  kb.text("🔗 Вступить по коду", "team:join").row();
   kb.row().text("❌ Выключить Solo", "solo:disable");
   return kb;
 }
