@@ -1,0 +1,10 @@
+node_modules/
+dist/
+webapp/node_modules/
+webapp/dist/
+data/
+uploads/
+.env
+*.log
+.DS_Store
+public/webapp/
