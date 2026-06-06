@@ -36,7 +36,6 @@ import { withTimeout } from "../utils/helpers.js";
 import {
   createTeamNameKeyboard,
   mainMenuKeyboard,
-  musicKeyboard,
   premiumKeyboard,
   soloKeyboard,
   teamConfirmDisbandKeyboard,
@@ -157,25 +156,6 @@ export function registerHandlers(bot: Bot): void {
   bot.command("workout", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
     await sendWorkoutInfo(ctx);
-  });
-
-  bot.command("music", async (ctx) => {
-    upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
-    const training = getTrainingContext(ctx.from!.id);
-    if (!training) {
-      await ctx.reply("Включите Solo режим — /solo — или создайте команду — /team");
-      return;
-    }
-    const workout = ensureTodayWorkoutForUser(training.teamId, ctx.from!.id);
-    await ctx.reply(
-      "🎵 *Саундтрек боевиков 90-х* — во вкладке «Тренировка» в Mini App.\n\n" +
-        "Треки:\n" +
-        "• 🎬 Погоня\n" +
-        "• 💥 Герой блокбастера\n" +
-        "• 🔫 Финальная разборка\n\n" +
-        "Нажми ▶️ Музыка перед первым подходом.",
-      { reply_markup: musicKeyboard(workout?.id) }
-    );
   });
 
   bot.command("motivate", async (ctx) => {
@@ -550,7 +530,6 @@ export async function setupBotCommands(bot: Bot): Promise<void> {
     { command: "team", description: "Команда" },
     { command: "solo", description: "Тренироваться одному" },
     { command: "workout", description: "Тренировка дня" },
-    { command: "music", description: "Музыка боевиков 90-х" },
     { command: "motivate", description: "Мотивация AI" },
     { command: "stats", description: "Статистика и FS" },
     { command: "premium", description: "Premium подписка ⭐" },

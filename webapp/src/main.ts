@@ -65,8 +65,6 @@ interface LeaderboardDto {
   }>;
 }
 
-import { bindMusicPlayer, musicPlayerHtml, workoutMusic } from "./music.js";
-
 const tg = window.Telegram?.WebApp;
 const API_ORIGIN = window.location.origin;
 const content = document.getElementById("content")!;
@@ -116,9 +114,6 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 function setTab(tab: string): void {
-  if (currentTab === "workout" && tab !== "workout") {
-    workoutMusic.pause();
-  }
   currentTab = tab;
   document.querySelectorAll(".tab").forEach((el) => {
     el.classList.toggle("active", (el as HTMLElement).dataset.tab === tab);
@@ -322,13 +317,10 @@ function renderWorkout(): void {
       ${isTimed ? `<div class="timer" id="timer">${formatTime(timerSeconds || workout.durationSec!)}</div>` : ""}
       <div class="coach-tip" id="coach-tip">🤖 Загрузка совета...</div>
     </div>
-    ${musicPlayerHtml()}
     <button type="button" class="btn btn-primary" id="set-done-btn">
       ✅ Подход ${currentSet} выполнен
     </button>
   `;
-
-  bindMusicPlayer();
 
   void loadCoachTip().then((tip) => {
     const el = document.getElementById("coach-tip");
@@ -359,7 +351,6 @@ function renderWorkout(): void {
 async function finishWorkout(): Promise<void> {
   if (!workout) return;
   stopTimer();
-  workoutMusic.stop();
   content.innerHTML = `<p class="loading">Сохраняем результат...</p>`;
 
   try {
