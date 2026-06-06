@@ -20,6 +20,8 @@ declare global {
         };
         HapticFeedback: { impactOccurred: (style: string) => void };
         showAlert: (message: string, callback?: () => void) => void;
+        openInvoice: (url: string, callback?: (status: string) => void) => void;
+        openTelegramLink: (url: string) => void;
         close: () => void;
       };
     };
