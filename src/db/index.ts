@@ -80,6 +80,22 @@ db.exec(`
   );
 `);
 
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN solo_mode INTEGER DEFAULT 0`);
+} catch {
+  /* column exists */
+}
+
+const SOLO_INVITE_PREFIX = "SOLO";
+
+export function soloTeamId(userId: number): string {
+  return `solo-${userId}`;
+}
+
+export function isSoloTeam(team: { id: string; invite_code: string }): boolean {
+  return team.id.startsWith("solo-") || team.invite_code.startsWith(SOLO_INVITE_PREFIX);
+}
+
 export function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -104,8 +120,68 @@ export function getUser(telegramId: number) {
         streak_days: number;
         last_workout_date: string | null;
         total_workouts: number;
+        solo_mode: number;
       }
     | undefined;
+}
+
+export function isSoloModeEnabled(userId: number): boolean {
+  return !!getUser(userId)?.solo_mode;
+}
+
+function clearSoloMode(userId: number): void {
+  db.prepare(`UPDATE users SET solo_mode = 0 WHERE telegram_id = ?`).run(userId);
+  const teamId = soloTeamId(userId);
+  const exists = db.prepare(`SELECT 1 FROM teams WHERE id = ?`).get(teamId);
+  if (exists) deleteTeamById(teamId);
+}
+
+export function ensureSoloTeam(userId: number) {
+  const teamId = soloTeamId(userId);
+  let team = db.prepare(`SELECT * FROM teams WHERE id = ?`).get(teamId) as
+    | { id: string; name: string; invite_code: string; captain_id: number }
+    | undefined;
+
+  if (!team) {
+    const inviteCode = `${SOLO_INVITE_PREFIX}${userId}`;
+    db.prepare(`INSERT INTO teams (id, name, invite_code, captain_id) VALUES (?, ?, ?, ?)`).run(
+      teamId,
+      "Solo",
+      inviteCode,
+      userId
+    );
+    db.prepare(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`).run(teamId, userId);
+    team = db.prepare(`SELECT * FROM teams WHERE id = ?`).get(teamId) as typeof team;
+  }
+  return team!;
+}
+
+export function enableSoloMode(userId: number): { ok: boolean; error?: string } {
+  if (getUserTeam(userId)) {
+    return { ok: false, error: "Сначала выйдите из команды" };
+  }
+  upsertUser(userId);
+  db.prepare(`UPDATE users SET solo_mode = 1 WHERE telegram_id = ?`).run(userId);
+  ensureSoloTeam(userId);
+  return { ok: true };
+}
+
+export function disableSoloMode(userId: number): { ok: boolean; error?: string } {
+  if (!isSoloModeEnabled(userId)) {
+    return { ok: false, error: "Solo режим не включён" };
+  }
+  clearSoloMode(userId);
+  return { ok: true };
+}
+
+export function getTrainingContext(userId: number): {
+  teamId: string;
+  mode: "team" | "solo";
+} | null {
+  const socialTeam = getUserTeam(userId);
+  if (socialTeam) return { teamId: socialTeam.id, mode: "team" };
+  if (!isSoloModeEnabled(userId)) return null;
+  return { teamId: ensureSoloTeam(userId).id, mode: "solo" };
 }
 
 export function addFsTokens(telegramId: number, amount: number): number {
@@ -142,6 +218,7 @@ export function updateStreak(telegramId: number): number {
 }
 
 export function createTeam(captainId: number, name: string): { id: string; inviteCode: string } {
+  clearSoloMode(captainId);
   const id = uuidv4();
   let inviteCode = generateInviteCode();
   while (getTeamByInviteCode(inviteCode)) {
@@ -158,7 +235,9 @@ export function createTeam(captainId: number, name: string): { id: string; invit
 }
 
 export function getTeamByInviteCode(code: string) {
-  return db.prepare(`SELECT * FROM teams WHERE invite_code = ?`).get(code.toUpperCase()) as
+  return db
+    .prepare(`SELECT * FROM teams WHERE invite_code = ? AND invite_code NOT LIKE ?`)
+    .get(code.toUpperCase(), `${SOLO_INVITE_PREFIX}%`) as
     | { id: string; name: string; invite_code: string; captain_id: number }
     | undefined;
 }
@@ -168,9 +247,9 @@ export function getUserTeam(userId: number) {
     .prepare(
       `SELECT t.* FROM teams t
        JOIN team_members tm ON tm.team_id = t.id
-       WHERE tm.user_id = ?`
+       WHERE tm.user_id = ? AND t.invite_code NOT LIKE ?`
     )
-    .get(userId) as
+    .get(userId, `${SOLO_INVITE_PREFIX}%`) as
     | { id: string; name: string; invite_code: string; captain_id: number }
     | undefined;
   return row;
@@ -201,6 +280,12 @@ export function getTeamMemberCount(teamId: string): number {
 }
 
 export function joinTeam(teamId: string, userId: number): { ok: boolean; error?: string } {
+  const team = db.prepare(`SELECT * FROM teams WHERE id = ?`).get(teamId) as
+    | { id: string; invite_code: string }
+    | undefined;
+  if (!team || isSoloTeam(team as { id: string; invite_code: string })) {
+    return { ok: false, error: "Команда не найдена" };
+  }
   const count = getTeamMemberCount(teamId);
   if (count >= config.maxTeamSize) {
     return { ok: false, error: "Команда заполнена (макс. 5 человек)" };
@@ -209,6 +294,7 @@ export function joinTeam(teamId: string, userId: number): { ok: boolean; error?:
   if (existing) {
     return { ok: false, error: "Вы уже в команде" };
   }
+  clearSoloMode(userId);
   db.prepare(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`).run(teamId, userId);
   return { ok: true };
 }
@@ -422,7 +508,9 @@ export function countTeamWorkoutsCompleted(userId: number): number {
 }
 
 export function getAllActiveTeams() {
-  return db.prepare(`SELECT id, name, captain_id FROM teams`).all() as Array<{
+  return db
+    .prepare(`SELECT id, name, captain_id FROM teams WHERE invite_code NOT LIKE ?`)
+    .all(`${SOLO_INVITE_PREFIX}%`) as Array<{
     id: string;
     name: string;
     captain_id: number;

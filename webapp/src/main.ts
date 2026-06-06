@@ -3,12 +3,15 @@ interface MeDto {
   fsTokens: number;
   streakDays: number;
   totalWorkouts: number;
+  soloMode: boolean;
+  trainingMode: "solo" | "team" | null;
   team: { id: string; name: string; inviteCode: string } | null;
   achievements: Array<{ emoji: string; label: string }>;
 }
 
 interface WorkoutDto {
   id: string;
+  soloMode?: boolean;
   exercise: {
     slug: string;
     name: string;
@@ -127,6 +130,10 @@ function showMainButton(text: string, onClick: () => void): void {
   tg.MainButton.show();
 }
 
+function canTrain(m: MeDto): boolean {
+  return !!m.team || m.soloMode;
+}
+
 async function loadData(): Promise<void> {
   try {
     me = await api<MeDto>("/api/me");
@@ -136,16 +143,20 @@ async function loadData(): Promise<void> {
     fsBadge.textContent = "Demo";
   }
 
-  if (me?.team) {
+  if (me && canTrain(me)) {
     try {
       workout = await api<WorkoutDto>("/api/workout/today");
     } catch {
       workout = null;
     }
-    try {
-      const teamData = await api<TeamDto>("/api/team");
-      team = teamData.team;
-    } catch {
+    if (me.team) {
+      try {
+        const teamData = await api<TeamDto>("/api/team");
+        team = teamData.team;
+      } catch {
+        team = null;
+      }
+    } else {
       team = null;
     }
   } else {
@@ -160,11 +171,13 @@ function renderHome(): void {
     return;
   }
 
-  if (!me.team) {
+  if (!canTrain(me)) {
     content.innerHTML = `
       <div class="card">
         <h2>👋 Привет, ${escapeHtml(me.firstName ?? "атлет")}!</h2>
-        <p>Создай или вступи в команду через бота — /team</p>
+        <p>Тренируйся один или собери команду</p>
+        <button type="button" class="btn btn-primary" id="enable-solo-btn">🏃 Solo режим</button>
+        <p class="hint" style="margin-top:12px">Или создай команду в боте — /team</p>
       </div>
       <div class="stat-grid">
         <div class="stat"><span class="stat-value">${me.fsTokens}</span><span class="stat-label">FS</span></div>
@@ -172,6 +185,7 @@ function renderHome(): void {
         <div class="stat"><span class="stat-value">${me.totalWorkouts}</span><span class="stat-label">Тренировок</span></div>
       </div>
     `;
+    document.getElementById("enable-solo-btn")?.addEventListener("click", () => void enableSoloMode());
     return;
   }
 
@@ -191,9 +205,9 @@ function renderHome(): void {
       <div class="stat"><span class="stat-value">${me.totalWorkouts}</span><span class="stat-label">Тренировок</span></div>
     </div>
     <div class="card">
-      <h2>🤝 ${escapeHtml(me.team.name)}</h2>
-      <p>Код: <b>${me.team.inviteCode}</b></p>
-      ${workout ? `<div class="progress-bar"><div class="progress-fill" style="width:${progressPct}%"></div></div>
+      <h2>${me.soloMode && !me.team ? "🏃 Solo режим" : `🤝 ${escapeHtml(me.team!.name)}`}</h2>
+      ${me.team ? `<p>Код: <b>${me.team.inviteCode}</b></p>` : `<p>Тренируешься один</p>`}
+      ${workout && !workout.soloMode ? `<div class="progress-bar"><div class="progress-fill" style="width:${progressPct}%"></div></div>
       <p>${workout.teamProgress.completed}/${workout.teamProgress.total} выполнили сегодня</p>` : ""}
     </div>
     ${
@@ -245,8 +259,8 @@ async function loadCoachTip(): Promise<string> {
 function renderWorkout(): void {
   stopTimer();
 
-  if (!me?.team || !workout?.exercise) {
-    content.innerHTML = `<p class="empty">Нет активной тренировки. Создай команду в боте.</p>`;
+  if (!me || !canTrain(me) || !workout?.exercise) {
+    content.innerHTML = `<p class="empty">Нет активной тренировки. Включи Solo режим или создай команду в боте.</p>`;
     return;
   }
 
@@ -405,9 +419,52 @@ async function uploadPhoto(file: File | undefined): Promise<void> {
   }
 }
 
+async function enableSoloMode(): Promise<void> {
+  try {
+    await api("/api/solo/enable", { method: "POST" });
+    await loadData();
+    render();
+    tg?.showAlert("🏃 Solo режим включён!");
+  } catch (e) {
+    tg?.showAlert(e instanceof Error ? e.message : "Не удалось включить Solo режим");
+  }
+}
+
+async function disableSoloMode(): Promise<void> {
+  try {
+    await api("/api/solo/disable", { method: "POST" });
+    workout = null;
+    await loadData();
+    render();
+    tg?.showAlert("Solo режим выключен");
+  } catch (e) {
+    tg?.showAlert(e instanceof Error ? e.message : "Ошибка");
+  }
+}
+
 async function renderTeam(): Promise<void> {
   if (!team) {
-    content.innerHTML = `<p class="empty">Нет команды. Используйте /team в боте.</p>`;
+    if (me?.soloMode) {
+      content.innerHTML = `
+        <div class="card">
+          <h2>🏃 Solo режим</h2>
+          <p>Тренируешься один — без команды и кодов приглашения.</p>
+          <p>FS, streak и ачивки работают как обычно.</p>
+          <button type="button" class="btn btn-secondary" id="disable-solo-btn">❌ Выключить Solo</button>
+          <p class="hint">Чтобы играть в команде — выключи Solo и используй /team в боте</p>
+        </div>
+      `;
+      document.getElementById("disable-solo-btn")?.addEventListener("click", () => void disableSoloMode());
+      return;
+    }
+    content.innerHTML = `
+      <div class="card">
+        <p class="empty">Нет команды</p>
+        <button type="button" class="btn btn-primary" id="enable-solo-team-btn">🏃 Solo режим</button>
+        <p class="hint" style="margin-top:12px">Или /team в боте — создать или вступить в команду</p>
+      </div>
+    `;
+    document.getElementById("enable-solo-team-btn")?.addEventListener("click", () => void enableSoloMode());
     return;
   }
 

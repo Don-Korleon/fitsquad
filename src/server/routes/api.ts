@@ -6,6 +6,8 @@ import { ACHIEVEMENTS, config } from "../../config.js";
 import {
   completeWorkout,
   disbandTeam,
+  disableSoloMode,
+  enableSoloMode,
   ensureTodayWorkout,
   getAchievements,
   getTeamLeaderboard,
@@ -16,6 +18,8 @@ import {
   getUserTeam,
   getUserWorkoutLog,
   getWorkoutLogs,
+  getTrainingContext,
+  isSoloModeEnabled,
   isWorkoutFullyCompleted,
   leaveTeam,
   markWorkoutCompleted,
@@ -97,6 +101,8 @@ apiRouter.get("/me", (req, res) => {
     fsTokens: dbUser?.fs_tokens ?? 0,
     streakDays: dbUser?.streak_days ?? 0,
     totalWorkouts: dbUser?.total_workouts ?? 0,
+    soloMode: isSoloModeEnabled(user.id),
+    trainingMode: team ? "team" : isSoloModeEnabled(user.id) ? "solo" : null,
     team: team ? { id: team.id, name: team.name, inviteCode: team.invite_code } : null,
     achievements,
   });
@@ -165,19 +171,47 @@ apiRouter.post("/team/disband", (req, res) => {
   res.json(result);
 });
 
+apiRouter.post("/solo/enable", (req, res) => {
+  const user = requireUser(req.headers["x-telegram-init-data"] as string);
+  if (!user) {
+    res.status(401).json({ error: "Invalid init data" });
+    return;
+  }
+  const result = enableSoloMode(user.id);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, soloMode: true });
+});
+
+apiRouter.post("/solo/disable", (req, res) => {
+  const user = requireUser(req.headers["x-telegram-init-data"] as string);
+  if (!user) {
+    res.status(401).json({ error: "Invalid init data" });
+    return;
+  }
+  const result = disableSoloMode(user.id);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, soloMode: false });
+});
+
 apiRouter.get("/workout/today", (req, res) => {
   const user = requireUser(req.headers["x-telegram-init-data"] as string);
   if (!user) {
     res.status(401).json({ error: "Invalid init data" });
     return;
   }
-  const team = getUserTeam(user.id);
-  if (!team) {
-    res.status(404).json({ error: "No team" });
+  const training = getTrainingContext(user.id);
+  if (!training) {
+    res.status(404).json({ error: "No training mode" });
     return;
   }
 
-  const workout = ensureTodayWorkout(team.id);
+  const workout = ensureTodayWorkout(training.teamId);
   if (!workout) {
     res.status(500).json({ error: "Workout error" });
     return;
@@ -197,6 +231,7 @@ apiRouter.get("/workout/today", (req, res) => {
     status: workout.status,
     completed: !!userLog?.completed,
     photoVerified: !!userLog?.photo_verified,
+    soloMode: training.mode === "solo",
     teamProgress: {
       completed: logs.filter((l) => l.completed === 1).length,
       total: logs.length,
@@ -251,11 +286,14 @@ apiRouter.post("/workout/:id/complete", (req, res) => {
   completeWorkout(workout.id, user.id, reward.totalFs);
 
   let teamBonus = 0;
+  const soloWorkout = workout.team_id.startsWith("solo-");
+
   if (isWorkoutFullyCompleted(workout.id)) {
     markWorkoutCompleted(workout.id);
-    const logs = getWorkoutLogs(workout.id);
-    const memberIds = logs.map((l) => l.user_id);
-    teamBonus = rewardTeamBonus(memberIds);
+    if (!soloWorkout) {
+      const logs = getWorkoutLogs(workout.id);
+      teamBonus = rewardTeamBonus(logs.map((l) => l.user_id));
+    }
   }
 
   res.json({

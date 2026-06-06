@@ -35,6 +35,7 @@ export function mainMenuKeyboard(): Keyboard {
 export function teamKeyboard(hasTeam: boolean, isCaptain = false): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (!hasTeam) {
+    kb.text("🏃 Solo режим", "solo:enable").row();
     kb.text("➕ Создать команду", "team:create").row();
     kb.text("🔗 Вступить по коду", "team:join").row();
   } else {
@@ -72,6 +73,15 @@ export function workoutKeyboard(workoutId: string): InlineKeyboard {
 export function musicKeyboard(workoutId?: string): InlineKeyboard {
   const kb = new InlineKeyboard();
   inlineWebApp(kb, "🎵 Открыть тренировку", workoutId ? `workout_${workoutId}` : "workout");
+  return kb;
+}
+
+export function soloKeyboard(): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  inlineWebApp(kb, "🏋️ Тренировка", "workout");
+  kb.row().text("➕ Создать команду", "team:create");
+  kb.text("🔗 Вступить по коду", "team:join").row();
+  kb.row().text("❌ Выключить Solo", "solo:disable");
   return kb;
 }
 

@@ -12,8 +12,12 @@ import {
   getUserTeam,
   getUserWorkoutLog,
   getWorkoutLogs,
+  getTrainingContext,
+  isSoloModeEnabled,
   joinTeam,
   createTeam,
+  disableSoloMode,
+  enableSoloMode,
   leaveTeam,
   disbandTeam,
   upsertUser,
@@ -29,10 +33,11 @@ import { withTimeout } from "../utils/helpers.js";
 import {
   createTeamNameKeyboard,
   mainMenuKeyboard,
+  musicKeyboard,
+  soloKeyboard,
   teamConfirmDisbandKeyboard,
   teamConfirmLeaveKeyboard,
   teamKeyboard,
-  musicKeyboard,
   workoutKeyboard,
 } from "./keyboards.js";
 import { helpText, statsText, teamText, WELCOME_TEXT, workoutCompleteText } from "./messages.js";
@@ -119,6 +124,19 @@ export function registerHandlers(bot: Bot): void {
     await sendTeamInfo(ctx);
   });
 
+  bot.command("solo", async (ctx) => {
+    upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
+    const result = enableSoloMode(ctx.from!.id);
+    if (!result.ok) {
+      await ctx.reply(result.error ?? "Не удалось включить Solo режим");
+      return;
+    }
+    await ctx.reply(
+      "🏃 *Solo режим включён*\n\nТренируйся один — /workout\n\nКогда захочешь команду — /team",
+      { parse_mode: "Markdown", reply_markup: soloKeyboard() }
+    );
+  });
+
   bot.command("workout", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
     await sendWorkoutInfo(ctx);
@@ -126,12 +144,12 @@ export function registerHandlers(bot: Bot): void {
 
   bot.command("music", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
-    const team = getUserTeam(ctx.from!.id);
-    if (!team) {
-      await ctx.reply("Сначала создайте или вступите в команду — /team");
+    const training = getTrainingContext(ctx.from!.id);
+    if (!training) {
+      await ctx.reply("Включите Solo режим — /solo — или создайте команду — /team");
       return;
     }
-    const workout = ensureTodayWorkout(team.id);
+    const workout = ensureTodayWorkout(training.teamId);
     await ctx.reply(
       "🎵 Мотивирующая музыка — во вкладке «Тренировка» в Mini App.\n\n" +
         "Треки:\n" +
@@ -177,6 +195,30 @@ export function registerHandlers(bot: Bot): void {
     } else {
       await ctx.reply("Откройте Mini App через HTTPS или нажмите /workout");
     }
+  });
+
+  bot.callbackQuery(/^solo:enable$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const result = enableSoloMode(ctx.from!.id);
+    if (!result.ok) {
+      await ctx.reply(result.error ?? "Не удалось включить Solo режим");
+      return;
+    }
+    await ctx.reply("🏃 Solo режим включён! /workout — тренировка дня", {
+      reply_markup: soloKeyboard(),
+    });
+  });
+
+  bot.callbackQuery(/^solo:disable$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const result = disableSoloMode(ctx.from!.id);
+    if (!result.ok) {
+      await ctx.reply(result.error ?? "Не удалось выключить Solo режим");
+      return;
+    }
+    await ctx.reply("Solo режим выключен. Создайте или вступите в команду:", {
+      reply_markup: teamKeyboard(false),
+    });
   });
 
   bot.callbackQuery(/^team:create$/, async (ctx) => {
@@ -299,7 +341,7 @@ export function registerHandlers(bot: Bot): void {
   bot.callbackQuery(/^coach:(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const workoutId = ctx.match![1]!;
-    const workout = getTodayWorkoutForTeam(getUserTeam(ctx.from!.id)?.id ?? "");
+    const workout = getTodayWorkoutForTeam(getTrainingContext(ctx.from!.id)?.teamId ?? "");
     if (!workout || workout.id !== workoutId) {
       await ctx.reply("Тренировка не найдена.");
       return;
@@ -335,13 +377,13 @@ export function registerHandlers(bot: Bot): void {
 
   bot.on("message:photo", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
-    const team = getUserTeam(ctx.from!.id);
-    if (!team) {
-      await ctx.reply("Сначала вступите в команду — /team");
+    const training = getTrainingContext(ctx.from!.id);
+    if (!training) {
+      await ctx.reply("Включите Solo режим — /solo — или вступите в команду — /team");
       return;
     }
 
-    const workout = ensureTodayWorkout(team.id);
+    const workout = ensureTodayWorkout(training.teamId);
     if (!workout) return;
 
     const log = getUserWorkoutLog(workout.id, ctx.from!.id);
@@ -390,7 +432,14 @@ function joinTeamByCode(userId: number, code: string) {
 async function sendTeamInfo(ctx: Context): Promise<void> {
   const view = buildTeamView(ctx.from!.id);
   if (!view) {
-    await ctx.reply("Вы ещё не в команде. Создайте или вступите:", {
+    if (isSoloModeEnabled(ctx.from!.id)) {
+      await ctx.reply(
+        "🏃 *Solo режим* — тренируешься один.\n\n/workout — тренировка дня",
+        { parse_mode: "Markdown", reply_markup: soloKeyboard() }
+      );
+      return;
+    }
+    await ctx.reply("Вы ещё не в команде. Solo режим или команда:", {
       reply_markup: teamKeyboard(false),
     });
     return;
@@ -402,13 +451,16 @@ async function sendTeamInfo(ctx: Context): Promise<void> {
 }
 
 async function sendWorkoutInfo(ctx: Context): Promise<void> {
-  const team = getUserTeam(ctx.from!.id);
-  if (!team) {
-    await ctx.reply("Сначала создайте или вступите в команду — /team");
+  const training = getTrainingContext(ctx.from!.id);
+  if (!training) {
+    await ctx.reply(
+      "Включите 🏃 Solo режим — /solo — или создайте команду — /team",
+      { reply_markup: teamKeyboard(false) }
+    );
     return;
   }
 
-  const workout = ensureTodayWorkout(team.id);
+  const workout = ensureTodayWorkout(training.teamId);
   if (!workout) return;
 
   const exercise = getExercise(workout.exercise_slug);
@@ -422,7 +474,13 @@ async function sendWorkoutInfo(ctx: Context): Promise<void> {
     ? `\n⏱ ${workout.duration_sec} сек × ${workout.target_sets} подходов`
     : `\n🔢 ${workout.target_reps} повт. × ${workout.target_sets} подходов`;
 
-  let text = `${exercise.emoji} *${exercise.name}*\n\n${exercise.description}${durationLine}\n\n*Техника:*\n${exercise.tips.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\n👥 Команда: ${completed}/${logs.length} выполнили`;
+  let text = `${exercise.emoji} *${exercise.name}*\n\n${exercise.description}${durationLine}\n\n*Техника:*\n${exercise.tips.map((t, i) => `${i + 1}. ${t}`).join("\n")}`;
+
+  if (training.mode === "solo") {
+    text += "\n\n🏃 Solo тренировка";
+  } else {
+    text += `\n\n👥 Команда: ${completed}/${logs.length} выполнили`;
+  }
 
   if (userLog?.completed) {
     text += "\n\n✅ Вы уже выполнили сегодня!";
@@ -442,6 +500,7 @@ export async function setupBotCommands(bot: Bot): Promise<void> {
   await bot.api.setMyCommands([
     { command: "start", description: "Начать" },
     { command: "team", description: "Команда" },
+    { command: "solo", description: "Тренироваться одному" },
     { command: "workout", description: "Тренировка дня" },
     { command: "music", description: "Мотивирующая музыка" },
     { command: "motivate", description: "Мотивация AI" },
