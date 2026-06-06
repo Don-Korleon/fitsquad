@@ -63,6 +63,7 @@ export const config = {
   premiumPriceStars: Number(process.env.PREMIUM_PRICE_STARS ?? 99),
   premiumDays: Number(process.env.PREMIUM_DAYS ?? 30),
   premiumFsMultiplier: Number(process.env.PREMIUM_FS_MULTIPLIER ?? 1.5),
+  appssVerifySecret: process.env.APPSS_VERIFY_SECRET ?? "",
   dataDir: dataRoot,
   uploadsDir: uploadsRoot,
   dbPath: path.join(dataRoot, "fitsquad.db"),
