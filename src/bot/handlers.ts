@@ -158,11 +158,11 @@ export function registerHandlers(bot: Bot): void {
     }
     const workout = ensureTodayWorkout(training.teamId);
     await ctx.reply(
-      "🎵 Мотивирующая музыка — во вкладке «Тренировка» в Mini App.\n\n" +
+      "🎵 *Саундтрек боевиков 90-х* — во вкладке «Тренировка» в Mini App.\n\n" +
         "Треки:\n" +
-        "• 🔥 Rock Energy — рок-трек\n" +
-        "• 💪 Beat Mode — электронный бит\n" +
-        "• ⚡ Cardio Rush — быстрый ритм\n\n" +
+        "• 🎬 Погоня\n" +
+        "• 💥 Герой блокбастера\n" +
+        "• 🔫 Финальная разборка\n\n" +
         "Нажми ▶️ Музыка перед первым подходом.",
       { reply_markup: musicKeyboard(workout?.id) }
     );
@@ -533,7 +533,7 @@ export async function setupBotCommands(bot: Bot): Promise<void> {
     { command: "team", description: "Команда" },
     { command: "solo", description: "Тренироваться одному" },
     { command: "workout", description: "Тренировка дня" },
-    { command: "music", description: "Мотивирующая музыка" },
+    { command: "music", description: "Музыка боевиков 90-х" },
     { command: "motivate", description: "Мотивация AI" },
     { command: "stats", description: "Статистика и FS" },
     { command: "help", description: "Справка" },
