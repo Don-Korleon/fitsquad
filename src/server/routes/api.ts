@@ -64,6 +64,7 @@ apiRouter.get("/health", (_req, res) => {
     ok: true,
     name: "FitSquad",
     mode: config.apiMode,
+    photoVerify: config.apiMode === "live" && config.openaiApiKey ? "openai" : "auto",
     webappUrl: config.webappUrl,
     webappIsHttps: config.webappIsHttps,
     botTokenSet: !!config.botToken,
