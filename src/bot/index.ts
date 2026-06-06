@@ -8,7 +8,10 @@ export function createBot(): Bot {
   }
   const bot = new Bot(config.botToken || "placeholder");
   bot.catch((err) => {
-    console.error("[bot] handler error:", err);
+    console.error("[bot] handler error:", err.error ?? err);
+    err.ctx
+      ?.reply("⚠️ Ошибка. Попробуйте /start или /help")
+      .catch(() => {});
   });
   registerHandlers(bot);
   return bot;

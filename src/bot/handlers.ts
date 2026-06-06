@@ -141,6 +141,15 @@ export function registerHandlers(bot: Bot): void {
     await ctx.reply(`🤖 *AI-тренер:*\n\n${msg.text}`, { parse_mode: "Markdown" });
   });
 
+  bot.hears("🏋️ Тренировка", async (ctx) => {
+    upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
+    if (config.webappIsHttps) {
+      await sendWorkoutInfo(ctx);
+    } else {
+      await ctx.reply("Откройте Mini App через HTTPS или нажмите /workout");
+    }
+  });
+
   bot.callbackQuery(/^team:create$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.reply("Выберите название команды:", { reply_markup: createTeamNameKeyboard() });
@@ -196,9 +205,9 @@ export function registerHandlers(bot: Bot): void {
     );
   });
 
-  bot.on("message:text", async (ctx) => {
-    const state = userState.get(ctx.from!.id);
-    if (state === "awaiting_invite_code") {
+  bot.on("message:text").filter(
+    (ctx) => userState.get(ctx.from!.id) === "awaiting_invite_code",
+    async (ctx) => {
       userState.delete(ctx.from!.id);
       const code = ctx.message.text.trim().toUpperCase();
       const team = joinTeamByCode(ctx.from!.id, code);
@@ -212,7 +221,7 @@ export function registerHandlers(bot: Bot): void {
         });
       }
     }
-  });
+  );
 
   bot.on("message:photo", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
