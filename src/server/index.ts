@@ -22,6 +22,7 @@ export function createServer(options?: {
 
   const publicDir = path.resolve(__dirname, "../../public");
   app.use("/exercises", express.static(path.join(publicDir, "exercises")));
+  app.use("/music", express.static(path.join(publicDir, "music")));
 
   const webappDist = path.resolve(__dirname, "../../webapp/dist");
   app.use("/webapp", express.static(webappDist));

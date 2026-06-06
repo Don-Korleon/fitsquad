@@ -32,6 +32,7 @@ import {
   teamConfirmDisbandKeyboard,
   teamConfirmLeaveKeyboard,
   teamKeyboard,
+  musicKeyboard,
   workoutKeyboard,
 } from "./keyboards.js";
 import { helpText, statsText, teamText, WELCOME_TEXT, workoutCompleteText } from "./messages.js";
@@ -121,6 +122,25 @@ export function registerHandlers(bot: Bot): void {
   bot.command("workout", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
     await sendWorkoutInfo(ctx);
+  });
+
+  bot.command("music", async (ctx) => {
+    upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
+    const team = getUserTeam(ctx.from!.id);
+    if (!team) {
+      await ctx.reply("Сначала создайте или вступите в команду — /team");
+      return;
+    }
+    const workout = ensureTodayWorkout(team.id);
+    await ctx.reply(
+      "🎵 Мотивирующая музыка — во вкладке «Тренировка» в Mini App.\n\n" +
+        "Треки:\n" +
+        "• 🔥 Rock Energy — рок-трек\n" +
+        "• 💪 Beat Mode — электронный бит\n" +
+        "• ⚡ Cardio Rush — быстрый ритм\n\n" +
+        "Нажми ▶️ Музыка перед первым подходом.",
+      { reply_markup: musicKeyboard(workout?.id) }
+    );
   });
 
   bot.command("motivate", async (ctx) => {
@@ -423,6 +443,7 @@ export async function setupBotCommands(bot: Bot): Promise<void> {
     { command: "start", description: "Начать" },
     { command: "team", description: "Команда" },
     { command: "workout", description: "Тренировка дня" },
+    { command: "music", description: "Мотивирующая музыка" },
     { command: "motivate", description: "Мотивация AI" },
     { command: "stats", description: "Статистика и FS" },
     { command: "help", description: "Справка" },

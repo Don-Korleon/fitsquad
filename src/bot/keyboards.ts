@@ -69,6 +69,12 @@ export function workoutKeyboard(workoutId: string): InlineKeyboard {
   return kb;
 }
 
+export function musicKeyboard(workoutId?: string): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  inlineWebApp(kb, "🎵 Открыть тренировку", workoutId ? `workout_${workoutId}` : "workout");
+  return kb;
+}
+
 export function createTeamNameKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("💪 FitSquad", "team:name:FitSquad")
