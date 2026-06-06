@@ -6,7 +6,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 
 const isVercel = !!process.env.VERCEL;
-const vercelHttps = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "";
+const vercelHost =
+  process.env.VERCEL_PROJECT_PRODUCTION_URL ??
+  process.env.VERCEL_URL ??
+  "";
+const vercelHttps = vercelHost
+  ? vercelHost.startsWith("http")
+    ? vercelHost.replace(/\/$/, "")
+    : `https://${vercelHost.replace(/\/$/, "")}`
+  : "";
+const resolvedPublicUrl = (
+  process.env.PUBLIC_URL ??
+  (vercelHttps || "http://localhost:3000")
+).replace(/\/$/, "");
+const resolvedWebappUrl = (
+  process.env.WEBAPP_URL ??
+  (resolvedPublicUrl !== "http://localhost:3000"
+    ? `${resolvedPublicUrl}/webapp/`
+    : "http://localhost:3000/webapp/")
+).replace(/\/?$/, "/");
 const dataRoot = isVercel ? "/tmp/fitsquad" : path.join(rootDir, "data");
 const uploadsRoot = isVercel ? "/tmp/fitsquad/uploads" : path.join(rootDir, "uploads");
 
@@ -14,21 +32,12 @@ export const config = {
   botToken: process.env.BOT_TOKEN ?? "",
   botUsername: process.env.BOT_USERNAME ?? "fitsquad_bot",
   webhookSecret: process.env.WEBHOOK_SECRET ?? "dev-secret",
-  publicUrl: (process.env.PUBLIC_URL ?? (vercelHttps || "http://localhost:3000")).replace(/\/$/, ""),
+  publicUrl: resolvedPublicUrl,
   port: Number(process.env.PORT ?? 3000),
   nodeEnv: process.env.NODE_ENV ?? "development",
   useWebhook: process.env.USE_WEBHOOK === "true" || isVercel,
-  webappUrl: (
-    process.env.WEBAPP_URL ??
-    (vercelHttps ? `${vercelHttps}/webapp/` : "http://localhost:3000/webapp/")
-  ).replace(/\/?$/, "/"),
-  webappIsHttps: (
-    process.env.WEBAPP_URL ??
-    (vercelHttps ? `${vercelHttps}/webapp/` : "http://localhost:3000/webapp/")
-  )
-    .trim()
-    .toLowerCase()
-    .startsWith("https://"),
+  webappUrl: resolvedWebappUrl,
+  webappIsHttps: resolvedWebappUrl.trim().toLowerCase().startsWith("https://"),
   apiMode: (process.env.API_MODE ?? "mock") as "mock" | "live",
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   maxTeamSize: Number(process.env.MAX_TEAM_SIZE ?? 5),

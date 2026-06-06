@@ -47,6 +47,7 @@ interface LeaderboardDto {
 }
 
 const tg = window.Telegram?.WebApp;
+const API_ORIGIN = window.location.origin;
 const content = document.getElementById("content")!;
 const fsBadge = document.getElementById("fs-badge")!;
 
@@ -76,7 +77,8 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   if (tg?.initData) {
     headers["X-Telegram-Init-Data"] = tg.initData;
   }
-  const res = await fetch(path, { ...options, headers });
+  const url = path.startsWith("http") ? path : `${API_ORIGIN}${path}`;
+  const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || res.statusText);

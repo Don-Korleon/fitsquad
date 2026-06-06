@@ -54,7 +54,13 @@ function workoutIdParam(raw: string | string[]): string {
 }
 
 apiRouter.get("/health", (_req, res) => {
-  res.json({ ok: true, name: "FitSquad", mode: config.apiMode });
+  res.json({
+    ok: true,
+    name: "FitSquad",
+    mode: config.apiMode,
+    webappUrl: config.webappUrl,
+    webappIsHttps: config.webappIsHttps,
+  });
 });
 
 apiRouter.get("/exercises", (_req, res) => {
