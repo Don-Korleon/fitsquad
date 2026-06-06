@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "../config.js";
-import { pickDailyExercise } from "../services/exercises.js";
+import { pickDailyExercise, pickExerciseForUser } from "../services/exercises.js";
 import { generateInviteCode } from "../utils/helpers.js";
 
 fs.mkdirSync(config.dataDir, { recursive: true });
@@ -81,9 +81,29 @@ db.exec(`
 `);
 
 try {
+  db.exec(`ALTER TABLE workout_logs ADD COLUMN exercise_slug TEXT`);
+} catch {
+  /* exists */
+}
+try {
+  db.exec(`ALTER TABLE workout_logs ADD COLUMN target_reps INTEGER`);
+} catch {
+  /* exists */
+}
+try {
+  db.exec(`ALTER TABLE workout_logs ADD COLUMN target_sets INTEGER`);
+} catch {
+  /* exists */
+}
+try {
+  db.exec(`ALTER TABLE workout_logs ADD COLUMN duration_sec INTEGER`);
+} catch {
+  /* exists */
+}
+try {
   db.exec(`ALTER TABLE users ADD COLUMN solo_mode INTEGER DEFAULT 0`);
 } catch {
-  /* column exists */
+  /* exists */
 }
 
 const SOLO_INVITE_PREFIX = "SOLO";
@@ -324,6 +344,8 @@ export function joinTeam(teamId: string, userId: number): { ok: boolean; error?:
   }
 
   db.prepare(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`).run(teamId, userId);
+  const todayWorkout = getTodayWorkoutForTeam(teamId);
+  if (todayWorkout) ensureUserWorkoutLog(todayWorkout.id, userId);
   return { ok: true };
 }
 
@@ -422,12 +444,158 @@ export function ensureTodayWorkout(teamId: string) {
 
   const members = getTeamMembers(teamId);
   for (const m of members) {
-    db.prepare(
-      `INSERT INTO workout_logs (id, team_workout_id, user_id) VALUES (?, ?, ?)`
-    ).run(uuidv4(), id, m.telegram_id);
+    ensureUserWorkoutLog(id, m.telegram_id);
   }
 
   return db.prepare(`SELECT * FROM team_workouts WHERE id = ?`).get(id) as typeof existing;
+}
+
+function resolveExerciseAssignment(
+  userId: number,
+  teamSlug: string,
+  teamReps: number,
+  teamSets: number,
+  teamDuration: number | null
+): {
+  slug: string;
+  reps: number;
+  sets: number;
+  durationSec: number | null;
+  alternativeUsed: boolean;
+} {
+  const completed = getUserCompletedExerciseSlugsToday(userId);
+  if (!completed.includes(teamSlug)) {
+    return {
+      slug: teamSlug,
+      reps: teamReps,
+      sets: teamSets,
+      durationSec: teamDuration,
+      alternativeUsed: false,
+    };
+  }
+  const alt = pickExerciseForUser(completed);
+  return {
+    slug: alt.slug,
+    reps: alt.defaultReps,
+    sets: alt.defaultSets,
+    durationSec: alt.durationSec ?? null,
+    alternativeUsed: true,
+  };
+}
+
+export function getUserCompletedExerciseSlugsToday(userId: number): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT COALESCE(wl.exercise_slug, tw.exercise_slug) AS slug
+       FROM workout_logs wl
+       JOIN team_workouts tw ON tw.id = wl.team_workout_id
+       WHERE wl.user_id = ? AND tw.workout_date = ? AND wl.completed = 1`
+    )
+    .all(userId, todayKey()) as Array<{ slug: string }>;
+  return rows.map((r) => r.slug);
+}
+
+export function hasUserCompletedExerciseToday(userId: number, exerciseSlug: string): boolean {
+  return getUserCompletedExerciseSlugsToday(userId).includes(exerciseSlug);
+}
+
+export function hasUserPhotoVerifiedExerciseToday(userId: number, exerciseSlug: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM workout_logs wl
+       JOIN team_workouts tw ON tw.id = wl.team_workout_id
+       WHERE wl.user_id = ? AND tw.workout_date = ? AND wl.photo_verified = 1
+         AND COALESCE(wl.exercise_slug, tw.exercise_slug) = ?`
+    )
+    .get(userId, todayKey(), exerciseSlug);
+  return !!row;
+}
+
+export function syncUserWorkoutLogAssignment(teamWorkoutId: string, userId: number): void {
+  const tw = getTeamWorkout(teamWorkoutId);
+  const log = getUserWorkoutLog(teamWorkoutId, userId);
+  if (!tw || !log || log.completed === 1) return;
+
+  const assignment = resolveExerciseAssignment(
+    userId,
+    tw.exercise_slug,
+    tw.target_reps,
+    tw.target_sets,
+    tw.duration_sec
+  );
+
+  db.prepare(
+    `UPDATE workout_logs SET exercise_slug = ?, target_reps = ?, target_sets = ?, duration_sec = ?
+     WHERE team_workout_id = ? AND user_id = ?`
+  ).run(
+    assignment.slug,
+    assignment.reps,
+    assignment.sets,
+    assignment.durationSec,
+    teamWorkoutId,
+    userId
+  );
+}
+
+export function ensureUserWorkoutLog(teamWorkoutId: string, userId: number) {
+  const tw = getTeamWorkout(teamWorkoutId);
+  if (!tw) return undefined;
+
+  let log = getUserWorkoutLog(teamWorkoutId, userId);
+  if (!log) {
+    const assignment = resolveExerciseAssignment(
+      userId,
+      tw.exercise_slug,
+      tw.target_reps,
+      tw.target_sets,
+      tw.duration_sec
+    );
+    db.prepare(
+      `INSERT INTO workout_logs (id, team_workout_id, user_id, exercise_slug, target_reps, target_sets, duration_sec)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      uuidv4(),
+      teamWorkoutId,
+      userId,
+      assignment.slug,
+      assignment.reps,
+      assignment.sets,
+      assignment.durationSec
+    );
+    log = getUserWorkoutLog(teamWorkoutId, userId);
+  } else if (log.completed !== 1) {
+    syncUserWorkoutLogAssignment(teamWorkoutId, userId);
+    log = getUserWorkoutLog(teamWorkoutId, userId);
+  }
+  return log;
+}
+
+export function getUserWorkoutView(teamWorkoutId: string, userId: number) {
+  const tw = getTeamWorkout(teamWorkoutId);
+  if (!tw) return null;
+
+  ensureUserWorkoutLog(teamWorkoutId, userId);
+  const log = getUserWorkoutLog(teamWorkoutId, userId);
+  if (!log) return null;
+
+  const slug = log.exercise_slug ?? tw.exercise_slug;
+  return {
+    exerciseSlug: slug,
+    targetReps: log.target_reps ?? tw.target_reps,
+    targetSets: log.target_sets ?? tw.target_sets,
+    durationSec: log.duration_sec ?? tw.duration_sec,
+    alternativeUsed: slug !== tw.exercise_slug,
+    teamExerciseSlug: tw.exercise_slug,
+    completed: log.completed === 1,
+    photoVerified: log.photo_verified === 1,
+  };
+}
+
+export function ensureTodayWorkoutForUser(teamId: string, userId: number) {
+  const workout = ensureTodayWorkout(teamId);
+  if (!workout) return null;
+  ensureUserWorkoutLog(workout.id, userId);
+  return workout;
 }
 
 export function getTeamWorkout(id: string) {
@@ -463,6 +631,10 @@ export function getWorkoutLogs(workoutId: string) {
       photo_verified: number;
       fs_earned: number;
       completed_at: string | null;
+      exercise_slug: string | null;
+      target_reps: number | null;
+      target_sets: number | null;
+      duration_sec: number | null;
     }>;
 }
 

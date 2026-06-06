@@ -8,7 +8,7 @@ import {
   disbandTeam,
   disableSoloMode,
   enableSoloMode,
-  ensureTodayWorkout,
+  ensureTodayWorkoutForUser,
   getAchievements,
   getTeamLeaderboard,
   getTeamMembers,
@@ -17,8 +17,11 @@ import {
   getUser,
   getUserTeam,
   getUserWorkoutLog,
+  getUserWorkoutView,
   getWorkoutLogs,
   getTrainingContext,
+  hasUserCompletedExerciseToday,
+  hasUserPhotoVerifiedExerciseToday,
   isSoloModeEnabled,
   isWorkoutFullyCompleted,
   leaveTeam,
@@ -212,27 +215,37 @@ apiRouter.get("/workout/today", (req, res) => {
     return;
   }
 
-  const workout = ensureTodayWorkout(training.teamId);
+  const workout = ensureTodayWorkoutForUser(training.teamId, user.id);
   if (!workout) {
     res.status(500).json({ error: "Workout error" });
     return;
   }
 
-  const exercise = getExercise(workout.exercise_slug);
+  const view = getUserWorkoutView(workout.id, user.id);
+  if (!view) {
+    res.status(500).json({ error: "Workout error" });
+    return;
+  }
+
+  const exercise = getExercise(view.exerciseSlug);
+  const teamExercise = getExercise(view.teamExerciseSlug);
   const logs = getWorkoutLogs(workout.id);
-  const userLog = getUserWorkoutLog(workout.id, user.id);
 
   res.json({
     id: workout.id,
     exercise: exercise ?? null,
-    targetReps: workout.target_reps,
-    targetSets: workout.target_sets,
-    durationSec: workout.duration_sec,
+    targetReps: view.targetReps,
+    targetSets: view.targetSets,
+    durationSec: view.durationSec,
     workoutDate: workout.workout_date,
     status: workout.status,
-    completed: !!userLog?.completed,
-    photoVerified: !!userLog?.photo_verified,
+    completed: view.completed,
+    photoVerified: view.photoVerified,
     soloMode: training.mode === "solo",
+    alternativeUsed: view.alternativeUsed,
+    alternativeNote: view.alternativeUsed
+      ? `Вы уже выполнили «${teamExercise?.name ?? view.teamExerciseSlug}» сегодня — другое упражнение`
+      : null,
     teamProgress: {
       completed: logs.filter((l) => l.completed === 1).length,
       total: logs.length,
@@ -251,16 +264,21 @@ apiRouter.get("/workout/:id", (req, res) => {
     res.status(404).json({ error: "Not found" });
     return;
   }
-  const exercise = getExercise(workout.exercise_slug);
-  const userLog = getUserWorkoutLog(workout.id, user.id);
+  const view = getUserWorkoutView(workout.id, user.id);
+  if (!view) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const exercise = getExercise(view.exerciseSlug);
   res.json({
     id: workout.id,
     exercise,
-    targetReps: workout.target_reps,
-    targetSets: workout.target_sets,
-    durationSec: workout.duration_sec,
-    completed: !!userLog?.completed,
-    photoVerified: !!userLog?.photo_verified,
+    targetReps: view.targetReps,
+    targetSets: view.targetSets,
+    durationSec: view.durationSec,
+    completed: view.completed,
+    photoVerified: view.photoVerified,
+    alternativeUsed: view.alternativeUsed,
   });
 });
 
@@ -277,9 +295,23 @@ apiRouter.post("/workout/:id/complete", (req, res) => {
     return;
   }
 
+  const view = getUserWorkoutView(workout.id, user.id);
+  if (!view) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+
   const existing = getUserWorkoutLog(workout.id, user.id);
   if (existing?.completed) {
     res.json({ alreadyCompleted: true, fsEarned: existing.fs_earned });
+    return;
+  }
+
+  if (hasUserCompletedExerciseToday(user.id, view.exerciseSlug)) {
+    res.status(409).json({
+      error: "Это упражнение уже выполнено сегодня. Обновите тренировку — будет предложено другое.",
+      exerciseAlreadyDone: true,
+    });
     return;
   }
 
@@ -327,6 +359,15 @@ apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) =
     return;
   }
 
+  const view = getUserWorkoutView(workout.id, user.id);
+  if (view && hasUserPhotoVerifiedExerciseToday(user.id, view.exerciseSlug)) {
+    res.status(409).json({
+      error: "Фото для этого упражнения уже верифицировано сегодня",
+      photoAlreadyVerified: true,
+    });
+    return;
+  }
+
   if (!req.file) {
     res.status(400).json({ error: "Photo required" });
     return;
@@ -360,8 +401,10 @@ apiRouter.get("/workout/:id/coach", async (req, res) => {
     res.status(404).json({ error: "Not found" });
     return;
   }
+  const view = getUserWorkoutView(workout.id, user.id);
   const setNum = Number(req.query.set ?? 1);
-  const tip = await getWorkoutCoachTip(workout.exercise_slug, setNum, user.id);
+  const slug = view?.exerciseSlug ?? workout.exercise_slug;
+  const tip = await getWorkoutCoachTip(slug, setNum, user.id);
   res.json(tip);
 });
 

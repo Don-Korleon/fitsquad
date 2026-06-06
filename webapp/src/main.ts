@@ -12,6 +12,8 @@ interface MeDto {
 interface WorkoutDto {
   id: string;
   soloMode?: boolean;
+  alternativeUsed?: boolean;
+  alternativeNote?: string | null;
   exercise: {
     slug: string;
     name: string;
@@ -297,6 +299,7 @@ function renderWorkout(): void {
         <h2>${escapeHtml(ex.name)}</h2>
         <p>${escapeHtml(ex.description)}</p>
       </div>
+      ${workout.alternativeNote ? `<p class="hint">${escapeHtml(workout.alternativeNote)}</p>` : ""}
       ${exerciseInstructionBlock(ex)}
       <p style="text-align:center;margin-top:12px">
         ${isTimed ? `⏱ ${workout.durationSec} сек` : `🔢 ${workout.targetReps} повт.`} × ${workout.targetSets} подходов
@@ -346,11 +349,38 @@ async function finishWorkout(): Promise<void> {
   content.innerHTML = `<p class="loading">Сохраняем результат...</p>`;
 
   try {
-    const result = await api<{
+    const res = await fetch(`${API_ORIGIN}/api/workout/${workout.id}/complete`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(tg?.initData ? { "X-Telegram-Init-Data": tg.initData } : {}),
+      },
+    });
+
+    if (res.status === 409) {
+      await loadData();
+      currentSet = 1;
+      renderWorkout();
+      tg?.showAlert("Это упражнение уже было сегодня — показано другое");
+      return;
+    }
+
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+
+    const result = (await res.json()) as {
       reward: { totalFs: number; streakDays: number; newAchievements: Array<{ emoji: string; label: string }> };
       teamBonus: number;
       allTeamCompleted: boolean;
-    }>(`/api/workout/${workout.id}/complete`, { method: "POST" });
+      alreadyCompleted?: boolean;
+    };
+
+    if (result.alreadyCompleted) {
+      workout.completed = true;
+      renderWorkout();
+      return;
+    }
 
     workout.completed = true;
     me = await api<MeDto>("/api/me");

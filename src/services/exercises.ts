@@ -73,3 +73,13 @@ export function pickDailyExercise(date = new Date()): Exercise {
   const dayIndex = date.getDate() % EXERCISES.length;
   return EXERCISES[dayIndex]!;
 }
+
+/** Первое упражнение дня, которое пользователь ещё не выполнял сегодня */
+export function pickExerciseForUser(completedSlugs: string[], date = new Date()): Exercise {
+  const start = date.getDate() % EXERCISES.length;
+  for (let i = 0; i < EXERCISES.length; i++) {
+    const ex = EXERCISES[(start + i) % EXERCISES.length]!;
+    if (!completedSlugs.includes(ex.slug)) return ex;
+  }
+  return EXERCISES[start]!;
+}

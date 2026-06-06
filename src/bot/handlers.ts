@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Bot, Context } from "grammy";
 import { ACHIEVEMENTS, config } from "../config.js";
 import {
-  ensureTodayWorkout,
+  ensureTodayWorkoutForUser,
   getAchievements,
   getTeamByInviteCode,
   getTeamMembers,
@@ -11,6 +11,7 @@ import {
   getUser,
   getUserTeam,
   getUserWorkoutLog,
+  getUserWorkoutView,
   getWorkoutLogs,
   getTrainingContext,
   isSoloModeEnabled,
@@ -156,7 +157,7 @@ export function registerHandlers(bot: Bot): void {
       await ctx.reply("Включите Solo режим — /solo — или создайте команду — /team");
       return;
     }
-    const workout = ensureTodayWorkout(training.teamId);
+    const workout = ensureTodayWorkoutForUser(training.teamId, ctx.from!.id);
     await ctx.reply(
       "🎵 *Саундтрек боевиков 90-х* — во вкладке «Тренировка» в Mini App.\n\n" +
         "Треки:\n" +
@@ -405,7 +406,7 @@ export function registerHandlers(bot: Bot): void {
       return;
     }
 
-    const workout = ensureTodayWorkout(training.teamId);
+    const workout = ensureTodayWorkoutForUser(training.teamId, ctx.from!.id);
     if (!workout) return;
 
     const log = getUserWorkoutLog(workout.id, ctx.from!.id);
@@ -491,21 +492,28 @@ async function sendWorkoutInfo(ctx: Context): Promise<void> {
     return;
   }
 
-  const workout = ensureTodayWorkout(training.teamId);
+  const workout = ensureTodayWorkoutForUser(training.teamId, ctx.from!.id);
   if (!workout) return;
 
-  const exercise = getExercise(workout.exercise_slug);
+  const view = getUserWorkoutView(workout.id, ctx.from!.id);
+  if (!view) return;
+
+  const exercise = getExercise(view.exerciseSlug);
   if (!exercise) return;
 
   const logs = getWorkoutLogs(workout.id);
   const completed = logs.filter((l) => l.completed === 1).length;
-  const userLog = getUserWorkoutLog(workout.id, ctx.from!.id);
 
-  const durationLine = workout.duration_sec
-    ? `\n⏱ ${workout.duration_sec} сек × ${workout.target_sets} подходов`
-    : `\n🔢 ${workout.target_reps} повт. × ${workout.target_sets} подходов`;
+  const durationLine = view.durationSec
+    ? `\n⏱ ${view.durationSec} сек × ${view.targetSets} подходов`
+    : `\n🔢 ${view.targetReps} повт. × ${view.targetSets} подходов`;
 
   let text = `${exercise.emoji} *${exercise.name}*\n\n${exercise.description}${durationLine}\n\n*Техника:*\n${exercise.tips.map((t, i) => `${i + 1}. ${t}`).join("\n")}`;
+
+  if (view.alternativeUsed) {
+    const teamEx = getExercise(view.teamExerciseSlug);
+    text += `\n\n🔄 Вы уже сделали «${teamEx?.name ?? view.teamExerciseSlug}» сегодня — альтернатива`;
+  }
 
   if (training.mode === "solo") {
     text += "\n\n🏃 Solo тренировка";
@@ -513,7 +521,7 @@ async function sendWorkoutInfo(ctx: Context): Promise<void> {
     text += `\n\n👥 Команда: ${completed}/${logs.length} выполнили`;
   }
 
-  if (userLog?.completed) {
+  if (view.completed) {
     text += "\n\n✅ Вы уже выполнили сегодня!";
   }
 
