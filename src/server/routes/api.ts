@@ -39,7 +39,7 @@ import {
   verifyWorkoutPhoto,
 } from "../../services/gamification.js";
 import { getUserPremiumInfo } from "../../services/premium.js";
-import { buildAppssVerifyPayload } from "../../bot/appssVerify.js";
+import { resolveAppssVerifyCode } from "../../bot/appssVerify.js";
 import { createPremiumInvoiceLink } from "../../bot/premium.js";
 import { validateInitData } from "../../utils/telegramAuth.js";
 
@@ -461,20 +461,13 @@ apiRouter.post("/premium/invoice", async (req, res) => {
   res.json({ invoiceLink });
 });
 
-function botIdFromToken(): number | null {
-  const part = config.botToken.split(":")[0];
-  const id = Number(part);
-  return Number.isFinite(id) ? id : null;
-}
-
 apiRouter.get("/appss-verify", (req, res) => {
-  const code = typeof req.query.code === "string" ? req.query.code : undefined;
-  const botId = botIdFromToken();
-  if (!botId) {
-    res.status(503).json({ error: "Bot not configured" });
+  const code = resolveAppssVerifyCode(
+    typeof req.query.code === "string" ? req.query.code : undefined
+  );
+  if (!code) {
+    res.status(400).json({ error: "Missing verification code" });
     return;
   }
-  const payload = buildAppssVerifyPayload(botId, config.botUsername, code);
-  const status = payload.status === "verified" ? 200 : payload.status === "missing_code" ? 400 : 403;
-  res.status(status).json(payload);
+  res.type("text/plain").send(code);
 });
