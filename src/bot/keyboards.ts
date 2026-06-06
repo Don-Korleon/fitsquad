@@ -32,16 +32,34 @@ export function mainMenuKeyboard(): Keyboard {
     .resized();
 }
 
-export function teamKeyboard(hasTeam: boolean): InlineKeyboard {
+export function teamKeyboard(hasTeam: boolean, isCaptain = false): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (!hasTeam) {
     kb.text("➕ Создать команду", "team:create").row();
     kb.text("🔗 Вступить по коду", "team:join").row();
   } else {
     inlineWebApp(kb, "🏋️ Открыть тренировку", "workout");
-    kb.row().text("📋 Участники", "team:members");
+    kb.row().text("📋 Участники", "team:members").row();
+    if (isCaptain) {
+      kb.text("🚪 Выйти", "team:leave");
+      kb.text("💥 Расформировать", "team:disband");
+    } else {
+      kb.text("🚪 Выйти", "team:leave");
+    }
   }
   return kb;
+}
+
+export function teamConfirmLeaveKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ Да, выйти", "team:leave:confirm")
+    .text("❌ Отмена", "team:cancel");
+}
+
+export function teamConfirmDisbandKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ Да, расформировать", "team:disband:confirm")
+    .text("❌ Отмена", "team:cancel");
 }
 
 export function workoutKeyboard(workoutId: string): InlineKeyboard {

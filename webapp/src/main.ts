@@ -15,6 +15,7 @@ interface WorkoutDto {
     emoji: string;
     description: string;
     tips: string[];
+    instructionImage: string;
   } | null;
   targetReps: number;
   targetSets: number;
@@ -28,6 +29,7 @@ interface TeamDto {
   team: {
     name: string;
     inviteCode: string;
+    isCaptain: boolean;
     members: Array<{
       firstName: string | null;
       fsTokens: number;
@@ -65,6 +67,13 @@ function escapeHtml(s: string): string {
   const d = document.createElement("div");
   d.textContent = s;
   return d.innerHTML;
+}
+
+function exerciseInstructionBlock(ex: NonNullable<WorkoutDto["exercise"]>): string {
+  const tipsHtml = ex.tips.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+  return `
+    <img class="exercise-instruction" src="${escapeHtml(ex.instructionImage)}" alt="Инструкция: ${escapeHtml(ex.name)}" loading="lazy" />
+    <ul class="exercise-tips">${tipsHtml}</ul>`;
 }
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
@@ -134,6 +143,9 @@ async function loadData(): Promise<void> {
     } catch {
       team = null;
     }
+  } else {
+    workout = null;
+    team = null;
   }
 }
 
@@ -187,6 +199,7 @@ function renderHome(): void {
           <h2>${escapeHtml(workout.exercise.name)}</h2>
           <p>${workout.completed ? "✅ Выполнено" : "⏳ Ждёт тебя"}</p>
         </div>
+        ${exerciseInstructionBlock(workout.exercise)}
       </div>`
         : ""
     }
@@ -265,6 +278,7 @@ function renderWorkout(): void {
         <h2>${escapeHtml(ex.name)}</h2>
         <p>${escapeHtml(ex.description)}</p>
       </div>
+      ${exerciseInstructionBlock(ex)}
       <p style="text-align:center;margin-top:12px">
         ${isTimed ? `⏱ ${workout.durationSec} сек` : `🔢 ${workout.targetReps} повт.`} × ${workout.targetSets} подходов
       </p>
@@ -416,6 +430,16 @@ async function renderTeam(): Promise<void> {
           .join("")}</div>`
       : "";
 
+  const leaveHint = team.isCaptain
+    ? team.members.length > 1
+      ? "При выходе капитанство передаётся другому участнику."
+      : "Вы единственный участник — команда будет удалена."
+    : "";
+
+  const captainActions = team.isCaptain
+    ? `<button type="button" class="btn btn-danger" id="btn-disband">💥 Расформировать команду</button>`
+    : "";
+
   content.innerHTML = `
     <div class="card">
       <h2>🤝 ${escapeHtml(team.name)}</h2>
@@ -426,7 +450,98 @@ async function renderTeam(): Promise<void> {
       ${membersHtml}
     </div>
     ${lbHtml}
+    <div class="card" id="team-actions">
+      <button type="button" class="btn btn-secondary" id="btn-leave">🚪 Выйти из команды</button>
+      ${captainActions}
+      ${leaveHint ? `<p class="hint">${leaveHint}</p>` : ""}
+    </div>
+    <div class="card hidden" id="team-confirm"></div>
   `;
+
+  document.getElementById("btn-leave")?.addEventListener("click", () => showLeaveConfirm());
+  document.getElementById("btn-disband")?.addEventListener("click", () => showDisbandConfirm());
+}
+
+function showLeaveConfirm(): void {
+  const box = document.getElementById("team-confirm");
+  if (!box || !team) return;
+  box.classList.remove("hidden");
+  box.innerHTML = `
+    <h2>🚪 Выйти из команды?</h2>
+    <p>${team.isCaptain && team.members.length > 1 ? "Капитанство будет передано другому участнику." : team.isCaptain ? "Команда будет удалена." : `Покинуть «${escapeHtml(team.name)}»?`}</p>
+    <button type="button" class="btn btn-secondary" id="confirm-leave">Подтвердить выход</button>
+    <button type="button" class="btn btn-primary" id="cancel-team-action">Отмена</button>
+  `;
+  document.getElementById("confirm-leave")?.addEventListener("click", () => void confirmLeave());
+  document.getElementById("cancel-team-action")?.addEventListener("click", () => {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+  });
+}
+
+function showDisbandConfirm(): void {
+  const box = document.getElementById("team-confirm");
+  if (!box || !team) return;
+  box.classList.remove("hidden");
+  box.innerHTML = `
+    <h2>💥 Расформировать команду?</h2>
+    <p>Все участники будут удалены. Это нельзя отменить.</p>
+    <button type="button" class="btn btn-danger" id="confirm-disband">Расформировать</button>
+    <button type="button" class="btn btn-primary" id="cancel-team-action">Отмена</button>
+  `;
+  document.getElementById("confirm-disband")?.addEventListener("click", () => void confirmDisband());
+  document.getElementById("cancel-team-action")?.addEventListener("click", () => {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+  });
+}
+
+async function confirmLeave(): Promise<void> {
+  const box = document.getElementById("team-confirm");
+  try {
+    const result = await api<{ ok: boolean; error?: string; disbanded?: boolean; teamName?: string }>(
+      "/api/team/leave",
+      { method: "POST" }
+    );
+    if (!result.ok) {
+      if (box) box.innerHTML = `<p class="error">${escapeHtml(result.error ?? "Ошибка")}</p>`;
+      return;
+    }
+    await loadData();
+    if (me?.team) {
+      void renderTeam();
+    } else {
+      currentTab = "home";
+      document.querySelectorAll(".tab").forEach((el) => el.classList.remove("active"));
+      document.querySelector('[data-tab="home"]')?.classList.add("active");
+      render();
+    }
+    tg?.showAlert(result.disbanded ? `Команда «${result.teamName}» расформирована` : "Вы вышли из команды");
+  } catch (e) {
+    if (box) box.innerHTML = `<p class="error">${escapeHtml(e instanceof Error ? e.message : "Ошибка")}</p>`;
+  }
+}
+
+async function confirmDisband(): Promise<void> {
+  const box = document.getElementById("team-confirm");
+  try {
+    const result = await api<{ ok: boolean; error?: string; teamName?: string }>(
+      "/api/team/disband",
+      { method: "POST" }
+    );
+    if (!result.ok) {
+      if (box) box.innerHTML = `<p class="error">${escapeHtml(result.error ?? "Ошибка")}</p>`;
+      return;
+    }
+    await loadData();
+    currentTab = "home";
+    document.querySelectorAll(".tab").forEach((el) => el.classList.remove("active"));
+    document.querySelector('[data-tab="home"]')?.classList.add("active");
+    render();
+    tg?.showAlert(`Команда «${result.teamName}» расформирована`);
+  } catch (e) {
+    if (box) box.innerHTML = `<p class="error">${escapeHtml(e instanceof Error ? e.message : "Ошибка")}</p>`;
+  }
 }
 
 function render(): void {

@@ -14,10 +14,12 @@ import {
   getWorkoutLogs,
   joinTeam,
   createTeam,
+  leaveTeam,
+  disbandTeam,
   upsertUser,
   verifyWorkoutPhoto as dbVerifyPhoto,
 } from "../db/index.js";
-import { getExercise } from "../services/exercises.js";
+import { getExercise, exerciseInstructionUrl } from "../services/exercises.js";
 import { getMotivationMessage, getWorkoutCoachTip } from "../services/aiTrainer.js";
 import {
   rewardPhotoVerified,
@@ -27,6 +29,8 @@ import { withTimeout } from "../utils/helpers.js";
 import {
   createTeamNameKeyboard,
   mainMenuKeyboard,
+  teamConfirmDisbandKeyboard,
+  teamConfirmLeaveKeyboard,
   teamKeyboard,
   workoutKeyboard,
 } from "./keyboards.js";
@@ -77,7 +81,12 @@ function buildTeamView(userId: number) {
     completedToday: logs.some((l) => l.user_id === m.telegram_id && l.completed === 1),
   }));
 
-  return { name: team.name, inviteCode: team.invite_code, members };
+  return {
+    name: team.name,
+    inviteCode: team.invite_code,
+    members,
+    isCaptain: team.captain_id === userId,
+  };
 }
 
 export function registerHandlers(bot: Bot): void {
@@ -89,7 +98,7 @@ export function registerHandlers(bot: Bot): void {
       const team = joinTeamByCode(ctx.from!.id, code);
       if (team) {
         await ctx.reply(`✅ Вы вступили в команду «${team.name}»!`, {
-          reply_markup: teamKeyboard(true),
+          reply_markup: teamKeyboard(true, team.captain_id === ctx.from!.id),
         });
         return;
       }
@@ -166,7 +175,7 @@ export function registerHandlers(bot: Bot): void {
     const { inviteCode } = createTeam(ctx.from!.id, name);
     await ctx.reply(
       `✅ Команда «${name}» создана!\n\nКод приглашения: \`${inviteCode}\`\n\nПоделитесь: t.me/${config.botUsername}?start=join_${inviteCode}`,
-      { parse_mode: "Markdown", reply_markup: teamKeyboard(true) }
+      { parse_mode: "Markdown", reply_markup: teamKeyboard(true, true) }
     );
   });
 
@@ -184,6 +193,87 @@ export function registerHandlers(bot: Bot): void {
       return;
     }
     await ctx.reply(teamText(view), { parse_mode: "Markdown" });
+  });
+
+  bot.callbackQuery(/^team:leave$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const team = getUserTeam(ctx.from!.id);
+    if (!team) {
+      await ctx.reply("Вы не в команде.");
+      return;
+    }
+    if (team.captain_id === ctx.from!.id) {
+      const count = getTeamMembers(team.id).length;
+      if (count > 1) {
+        await ctx.reply(
+          "Вы капитан. При выходе капитанство передаётся следующему участнику.\n\nПодтвердите выход:",
+          { reply_markup: teamConfirmLeaveKeyboard() }
+        );
+      } else {
+        await ctx.reply(
+          "Вы единственный участник — при выходе команда будет удалена.\n\nПодтвердите:",
+          { reply_markup: teamConfirmLeaveKeyboard() }
+        );
+      }
+    } else {
+      await ctx.reply(`Выйти из команды «${team.name}»?`, {
+        reply_markup: teamConfirmLeaveKeyboard(),
+      });
+    }
+  });
+
+  bot.callbackQuery(/^team:leave:confirm$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const result = leaveTeam(ctx.from!.id);
+    if (!result.ok) {
+      await ctx.reply(result.error ?? "Не удалось выйти");
+      return;
+    }
+    if (result.disbanded) {
+      await ctx.reply(`✅ Команда «${result.teamName}» расформирована.`, {
+        reply_markup: teamKeyboard(false),
+      });
+      return;
+    }
+    let msg = `✅ Вы вышли из команды «${result.teamName}».`;
+    if (result.newCaptainId) {
+      msg += "\n👑 Капитанство передано другому участнику.";
+    }
+    await ctx.reply(msg, { reply_markup: teamKeyboard(false) });
+  });
+
+  bot.callbackQuery(/^team:disband$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const team = getUserTeam(ctx.from!.id);
+    if (!team) {
+      await ctx.reply("Вы не в команде.");
+      return;
+    }
+    if (team.captain_id !== ctx.from!.id) {
+      await ctx.reply("Только капитан может расформировать команду.");
+      return;
+    }
+    await ctx.reply(
+      `⚠️ Расформировать команду «${team.name}»?\n\nВсе участники будут удалены. Это нельзя отменить.`,
+      { reply_markup: teamConfirmDisbandKeyboard() }
+    );
+  });
+
+  bot.callbackQuery(/^team:disband:confirm$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const result = disbandTeam(ctx.from!.id);
+    if (!result.ok) {
+      await ctx.reply(result.error ?? "Не удалось расформировать");
+      return;
+    }
+    await ctx.reply(`✅ Команда «${result.teamName}» расформирована.`, {
+      reply_markup: teamKeyboard(false),
+    });
+  });
+
+  bot.callbackQuery(/^team:cancel$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await sendTeamInfo(ctx);
   });
 
   bot.callbackQuery(/^coach:(.+)$/, async (ctx) => {
@@ -213,7 +303,7 @@ export function registerHandlers(bot: Bot): void {
       const team = joinTeamByCode(ctx.from!.id, code);
       if (team) {
         await ctx.reply(`✅ Вы вступили в команду «${team.name}»!`, {
-          reply_markup: teamKeyboard(true),
+          reply_markup: teamKeyboard(true, false),
         });
       } else {
         await ctx.reply("❌ Команда не найдена или уже заполнена.", {
@@ -287,7 +377,7 @@ async function sendTeamInfo(ctx: Context): Promise<void> {
   }
   await ctx.reply(teamText(view), {
     parse_mode: "Markdown",
-    reply_markup: teamKeyboard(true),
+    reply_markup: teamKeyboard(true, view.isCaptain),
   });
 }
 
@@ -312,16 +402,20 @@ async function sendWorkoutInfo(ctx: Context): Promise<void> {
     ? `\n⏱ ${workout.duration_sec} сек × ${workout.target_sets} подходов`
     : `\n🔢 ${workout.target_reps} повт. × ${workout.target_sets} подходов`;
 
-  let text = `${exercise.emoji} *${exercise.name}*\n\n${exercise.description}${durationLine}\n\n👥 Команда: ${completed}/${logs.length} выполнили`;
+  let text = `${exercise.emoji} *${exercise.name}*\n\n${exercise.description}${durationLine}\n\n*Техника:*\n${exercise.tips.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\n👥 Команда: ${completed}/${logs.length} выполнили`;
 
   if (userLog?.completed) {
     text += "\n\n✅ Вы уже выполнили сегодня!";
   }
 
-  await ctx.reply(text, {
-    parse_mode: "Markdown",
-    reply_markup: workoutKeyboard(workout.id),
-  });
+  const photoUrl = exerciseInstructionUrl(exercise, config.publicUrl);
+  const markup = { parse_mode: "Markdown" as const, reply_markup: workoutKeyboard(workout.id) };
+
+  try {
+    await ctx.replyWithPhoto(photoUrl, { caption: text, ...markup });
+  } catch {
+    await ctx.reply(text, markup);
+  }
 }
 
 export async function setupBotCommands(bot: Bot): Promise<void> {

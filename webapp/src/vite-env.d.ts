@@ -19,6 +19,7 @@ declare global {
           hideProgress: () => void;
         };
         HapticFeedback: { impactOccurred: (style: string) => void };
+        showAlert: (message: string, callback?: () => void) => void;
         close: () => void;
       };
     };

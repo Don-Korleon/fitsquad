@@ -8,6 +8,8 @@ export interface Exercise {
   defaultSets: number;
   durationSec?: number;
   tips: string[];
+  /** Path to instruction image, e.g. /exercises/pushups.png */
+  instructionImage: string;
 }
 
 export interface UserProfile {

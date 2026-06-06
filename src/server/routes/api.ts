@@ -5,6 +5,7 @@ import path from "node:path";
 import { ACHIEVEMENTS, config } from "../../config.js";
 import {
   completeWorkout,
+  disbandTeam,
   ensureTodayWorkout,
   getAchievements,
   getTeamLeaderboard,
@@ -16,6 +17,7 @@ import {
   getUserWorkoutLog,
   getWorkoutLogs,
   isWorkoutFullyCompleted,
+  leaveTeam,
   markWorkoutCompleted,
   upsertUser,
   verifyWorkoutPhoto as dbVerifyPhoto,
@@ -128,10 +130,39 @@ apiRouter.get("/team", (req, res) => {
       name: team.name,
       inviteCode: team.invite_code,
       captainId: team.captain_id,
+      isCaptain: team.captain_id === user.id,
       members,
       maxSize: config.maxTeamSize,
     },
   });
+});
+
+apiRouter.post("/team/leave", (req, res) => {
+  const user = requireUser(req.headers["x-telegram-init-data"] as string);
+  if (!user) {
+    res.status(401).json({ error: "Invalid init data" });
+    return;
+  }
+  const result = leaveTeam(user.id);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json(result);
+});
+
+apiRouter.post("/team/disband", (req, res) => {
+  const user = requireUser(req.headers["x-telegram-init-data"] as string);
+  if (!user) {
+    res.status(401).json({ error: "Invalid init data" });
+    return;
+  }
+  const result = disbandTeam(user.id);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json(result);
 });
 
 apiRouter.get("/workout/today", (req, res) => {

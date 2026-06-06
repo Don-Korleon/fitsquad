@@ -213,6 +213,65 @@ export function joinTeam(teamId: string, userId: number): { ok: boolean; error?:
   return { ok: true };
 }
 
+function deleteTeamById(teamId: string): void {
+  const workouts = db
+    .prepare(`SELECT id FROM team_workouts WHERE team_id = ?`)
+    .all(teamId) as Array<{ id: string }>;
+  for (const w of workouts) {
+    db.prepare(`DELETE FROM workout_logs WHERE team_workout_id = ?`).run(w.id);
+  }
+  db.prepare(`DELETE FROM team_workouts WHERE team_id = ?`).run(teamId);
+  db.prepare(`DELETE FROM team_members WHERE team_id = ?`).run(teamId);
+  db.prepare(`DELETE FROM teams WHERE id = ?`).run(teamId);
+}
+
+export function leaveTeam(userId: number): {
+  ok: boolean;
+  error?: string;
+  disbanded?: boolean;
+  teamName?: string;
+  newCaptainId?: number;
+} {
+  const team = getUserTeam(userId);
+  if (!team) return { ok: false, error: "Вы не в команде" };
+
+  const count = getTeamMemberCount(team.id);
+
+  if (team.captain_id === userId) {
+    if (count <= 1) {
+      deleteTeamById(team.id);
+      return { ok: true, disbanded: true, teamName: team.name };
+    }
+    const nextCaptain = db
+      .prepare(
+        `SELECT user_id FROM team_members
+         WHERE team_id = ? AND user_id != ?
+         ORDER BY joined_at ASC LIMIT 1`
+      )
+      .get(team.id, userId) as { user_id: number } | undefined;
+    if (!nextCaptain) {
+      deleteTeamById(team.id);
+      return { ok: true, disbanded: true, teamName: team.name };
+    }
+    db.prepare(`UPDATE teams SET captain_id = ? WHERE id = ?`).run(nextCaptain.user_id, team.id);
+    db.prepare(`DELETE FROM team_members WHERE team_id = ? AND user_id = ?`).run(team.id, userId);
+    return { ok: true, teamName: team.name, newCaptainId: nextCaptain.user_id };
+  }
+
+  db.prepare(`DELETE FROM team_members WHERE team_id = ? AND user_id = ?`).run(team.id, userId);
+  return { ok: true, teamName: team.name };
+}
+
+export function disbandTeam(userId: number): { ok: boolean; error?: string; teamName?: string } {
+  const team = getUserTeam(userId);
+  if (!team) return { ok: false, error: "Вы не в команде" };
+  if (team.captain_id !== userId) {
+    return { ok: false, error: "Только капитан может расформировать команду" };
+  }
+  deleteTeamById(team.id);
+  return { ok: true, teamName: team.name };
+}
+
 export function ensureTodayWorkout(teamId: string) {
   const today = todayKey();
   const existing = db

@@ -10,6 +10,7 @@ export const EXERCISES: Exercise[] = [
     defaultReps: 15,
     defaultSets: 3,
     tips: ["Локти под углом 45°", "Корпус — прямая линия", "Опускайтесь до 90° в локтях"],
+    instructionImage: "/exercises/pushups.png",
   },
   {
     slug: "squats",
@@ -20,6 +21,7 @@ export const EXERCISES: Exercise[] = [
     defaultReps: 20,
     defaultSets: 3,
     tips: ["Спина прямая", "Бёдра параллельны полу", "Пятки на полу"],
+    instructionImage: "/exercises/squats.png",
   },
   {
     slug: "plank",
@@ -31,6 +33,7 @@ export const EXERCISES: Exercise[] = [
     defaultSets: 3,
     durationSec: 45,
     tips: ["Не прогибайте поясницу", "Напрягите пресс", "Дышите ровно"],
+    instructionImage: "/exercises/plank.png",
   },
   {
     slug: "jumping_jacks",
@@ -41,6 +44,7 @@ export const EXERCISES: Exercise[] = [
     defaultReps: 30,
     defaultSets: 3,
     tips: ["Мягкая посадка", "Руки над головой", "Держите темп"],
+    instructionImage: "/exercises/jumping_jacks.png",
   },
   {
     slug: "burpees",
@@ -51,11 +55,18 @@ export const EXERCISES: Exercise[] = [
     defaultReps: 10,
     defaultSets: 3,
     tips: ["Плавный переход между фазами", "Не пропускайте прыжок", "Следите за дыханием"],
+    instructionImage: "/exercises/burpees.png",
   },
 ];
 
 export function getExercise(slug: string): Exercise | undefined {
   return EXERCISES.find((e) => e.slug === slug);
+}
+
+export function exerciseInstructionUrl(exercise: Exercise, publicUrl?: string): string {
+  const path = exercise.instructionImage;
+  if (publicUrl) return `${publicUrl.replace(/\/$/, "")}${path}`;
+  return path;
 }
 
 export function pickDailyExercise(date = new Date()): Exercise {

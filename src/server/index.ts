@@ -20,6 +20,9 @@ export function createServer(options?: {
   app.use("/api", apiRouter);
   app.use("/uploads", express.static(config.uploadsDir));
 
+  const publicDir = path.resolve(__dirname, "../../public");
+  app.use("/exercises", express.static(path.join(publicDir, "exercises")));
+
   const webappDist = path.resolve(__dirname, "../../webapp/dist");
   app.use("/webapp", express.static(webappDist));
   app.get("/webapp/*", (_req, res) => {
