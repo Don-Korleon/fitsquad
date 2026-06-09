@@ -66,6 +66,16 @@ function workoutIdParam(raw: string | string[]): string {
   return Array.isArray(raw) ? raw[0]! : raw;
 }
 
+function resolveWorkoutForUser(userId: number, workoutId: string) {
+  const direct = getTeamWorkout(workoutId);
+  if (direct) return direct;
+
+  const training = getTrainingContext(userId);
+  if (!training) return undefined;
+
+  return getTodayWorkoutForTeam(training.teamId) ?? undefined;
+}
+
 apiRouter.get("/health", async (_req, res) => {
   const botCommands = await fetchBotCommandNames();
   res.json({
@@ -301,15 +311,15 @@ apiRouter.post("/workout/:id/complete", (req, res) => {
     return;
   }
 
-  const workout = getTeamWorkout(workoutIdParam(req.params.id));
+  const workout = resolveWorkoutForUser(user.id, workoutIdParam(req.params.id));
   if (!workout) {
-    res.status(404).json({ error: "Not found" });
+    res.status(404).json({ error: "Тренировка не найдена. Обновите Mini App." });
     return;
   }
 
   const view = getUserWorkoutView(workout.id, user.id);
   if (!view) {
-    res.status(404).json({ error: "Not found" });
+    res.status(404).json({ error: "Тренировка недоступна. Обновите Mini App." });
     return;
   }
 
@@ -351,23 +361,25 @@ apiRouter.post("/workout/:id/complete", (req, res) => {
 apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) => {
   const user = requireUser(req.headers["x-telegram-init-data"] as string);
   if (!user) {
-    res.status(401).json({ error: "Invalid init data" });
+    res.status(401).json({ error: "Откройте Mini App через Telegram" });
     return;
   }
 
-  const workout = getTeamWorkout(workoutIdParam(req.params.id));
+  const workout = resolveWorkoutForUser(user.id, workoutIdParam(req.params.id));
   if (!workout) {
-    res.status(404).json({ error: "Not found" });
+    res.status(404).json({
+      error: "Тренировка не найдена. Обновите Mini App и завершите тренировку снова.",
+    });
     return;
   }
 
   const log = getUserWorkoutLog(workout.id, user.id);
   if (!log?.completed) {
-    res.status(400).json({ error: "Complete workout first" });
+    res.status(400).json({ error: "Сначала завершите тренировку в Mini App" });
     return;
   }
   if (log.photo_verified) {
-    res.json({ alreadyVerified: true });
+    res.json({ alreadyVerified: true, reason: "Фото уже верифицировано ✅" });
     return;
   }
 
@@ -381,7 +393,7 @@ apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) =
   }
 
   if (!req.file) {
-    res.status(400).json({ error: "Photo required" });
+    res.status(400).json({ error: "Выберите фото для загрузки" });
     return;
   }
 
@@ -395,7 +407,11 @@ apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) =
   });
   if (!result.verified) {
     fs.unlinkSync(finalPath);
-    res.status(400).json({ error: result.reason, confidence: result.confidence });
+    res.status(400).json({
+      error: result.reason,
+      reason: result.reason,
+      confidence: result.confidence,
+    });
     return;
   }
 

@@ -94,6 +94,18 @@ function exerciseInstructionBlock(ex: NonNullable<WorkoutDto["exercise"]>): stri
     <ul class="exercise-tips">${tipsHtml}</ul>`;
 }
 
+async function readApiError(res: Response): Promise<string> {
+  const text = await res.text();
+  if (!text) return res.statusText || "Ошибка";
+
+  try {
+    const data = JSON.parse(text) as { error?: string; reason?: string; message?: string };
+    return data.error ?? data.reason ?? data.message ?? text;
+  } catch {
+    return text;
+  }
+}
+
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string>),
@@ -107,8 +119,7 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_ORIGIN}${path}`;
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText);
+    throw new Error(await readApiError(res));
   }
   return res.json() as Promise<T>;
 }
@@ -450,7 +461,8 @@ async function uploadPhoto(file: File | undefined): Promise<void> {
     tg?.HapticFeedback.impactOccurred("heavy");
     setTimeout(() => renderWorkout(), 1500);
   } catch (e) {
-    status.textContent = `❌ ${e instanceof Error ? e.message : "Ошибка"}`;
+    const message = e instanceof Error ? e.message : "Не удалось загрузить фото";
+    status.innerHTML = `<span class="error">❌ ${escapeHtml(message)}</span>`;
   }
 }
 
