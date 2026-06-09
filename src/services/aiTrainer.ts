@@ -103,10 +103,10 @@ function fillTemplate(template: string, vars: Record<string, string | number>): 
 }
 
 export async function getMotivationMessage(userId: number): Promise<AiCoachMessage> {
-  const user = getUser(userId);
+  const user = await getUser(userId);
   const name = user?.first_name ?? "атлет";
-  const team = getUserTeam(userId);
-  const workout = team ? getTodayWorkoutForTeam(team.id) : null;
+  const team = await getUserTeam(userId);
+  const workout = team ? await getTodayWorkoutForTeam(team.id) : null;
   const exercise = workout ? getExercise(workout.exercise_slug) : null;
 
   const context = {
@@ -119,7 +119,7 @@ export async function getMotivationMessage(userId: number): Promise<AiCoachMessa
     fs: user?.fs_tokens ?? 0,
   };
 
-  if (canUseLiveAi(userId)) {
+  if (await canUseLiveAi(userId)) {
     const ai = await askOpenAi(context, userId);
     if (ai) return ai;
   }
@@ -137,7 +137,7 @@ export async function getWorkoutCoachTip(
 ): Promise<AiCoachMessage> {
   const exercise = getExercise(exerciseSlug);
 
-  if (userId !== undefined && canUseLiveAi(userId) && exercise) {
+  if (userId !== undefined && (await canUseLiveAi(userId)) && exercise) {
     try {
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",

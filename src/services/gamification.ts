@@ -20,46 +20,46 @@ export interface WorkoutReward {
   streakDays: number;
 }
 
-export function rewardWorkoutComplete(userId: number): WorkoutReward {
+export async function rewardWorkoutComplete(userId: number): Promise<WorkoutReward> {
   const baseFs = config.fsWorkoutComplete;
-  const streakDays = updateStreak(userId);
+  const streakDays = await updateStreak(userId);
   const streakBonus = streakDays > 1 ? config.fsStreakBonus : 0;
 
   let achievementBonus = 0;
   const newAchievements: WorkoutReward["newAchievements"] = [];
 
-  const user = getUser(userId);
+  const user = await getUser(userId);
   const totalWorkouts = user?.total_workouts ?? 1;
 
-  if (totalWorkouts === 1 && grantAchievement(userId, "first_workout")) {
+  if (totalWorkouts === 1 && (await grantAchievement(userId, "first_workout"))) {
     const ach = ACHIEVEMENTS.find((a) => a.type === "first_workout")!;
     achievementBonus += ach.bonusFs;
     newAchievements.push({ type: ach.type, label: ach.label, emoji: ach.emoji, bonusFs: ach.bonusFs });
   }
 
-  if (streakDays >= 7 && grantAchievement(userId, "streak_7")) {
+  if (streakDays >= 7 && (await grantAchievement(userId, "streak_7"))) {
     const ach = ACHIEVEMENTS.find((a) => a.type === "streak_7")!;
     achievementBonus += ach.bonusFs;
     newAchievements.push({ type: ach.type, label: ach.label, emoji: ach.emoji, bonusFs: ach.bonusFs });
   }
 
-  const teamWorkouts = countTeamWorkoutsCompleted(userId);
-  if (teamWorkouts >= 5 && grantAchievement(userId, "team_player")) {
+  const teamWorkouts = await countTeamWorkoutsCompleted(userId);
+  if (teamWorkouts >= 5 && (await grantAchievement(userId, "team_player"))) {
     const ach = ACHIEVEMENTS.find((a) => a.type === "team_player")!;
     achievementBonus += ach.bonusFs;
     newAchievements.push({ type: ach.type, label: ach.label, emoji: ach.emoji, bonusFs: ach.bonusFs });
   }
 
   const subtotal = baseFs + streakBonus + achievementBonus;
-  const multiplier = isPremium(userId) ? config.premiumFsMultiplier : 1;
+  const multiplier = (await isPremium(userId)) ? config.premiumFsMultiplier : 1;
   const totalFs = Math.round(subtotal * multiplier);
   const premiumBonus = totalFs - subtotal;
-  addFsTokens(userId, totalFs);
+  await addFsTokens(userId, totalFs);
 
-  const updatedUser = getUser(userId);
-  if ((updatedUser?.fs_tokens ?? 0) >= 100 && grantAchievement(userId, "fs_100")) {
+  const updatedUser = await getUser(userId);
+  if ((updatedUser?.fs_tokens ?? 0) >= 100 && (await grantAchievement(userId, "fs_100"))) {
     const ach = ACHIEVEMENTS.find((a) => a.type === "fs_100")!;
-    addFsTokens(userId, ach.bonusFs);
+    await addFsTokens(userId, ach.bonusFs);
     achievementBonus += ach.bonusFs;
     newAchievements.push({ type: ach.type, label: ach.label, emoji: ach.emoji, bonusFs: ach.bonusFs });
   }
@@ -75,17 +75,17 @@ export function rewardWorkoutComplete(userId: number): WorkoutReward {
   };
 }
 
-export function rewardPhotoVerified(userId: number): number {
+export async function rewardPhotoVerified(userId: number): Promise<number> {
   const amount = Math.round(
-    config.fsPhotoVerified * (isPremium(userId) ? config.premiumFsMultiplier : 1)
+    config.fsPhotoVerified * ((await isPremium(userId)) ? config.premiumFsMultiplier : 1)
   );
-  addFsTokens(userId, amount);
+  await addFsTokens(userId, amount);
   return amount;
 }
 
-export function rewardTeamBonus(memberIds: number[]): number {
+export async function rewardTeamBonus(memberIds: number[]): Promise<number> {
   for (const id of memberIds) {
-    addFsTokens(id, config.fsTeamBonus);
+    await addFsTokens(id, config.fsTeamBonus);
   }
   return config.fsTeamBonus;
 }
@@ -124,7 +124,7 @@ export async function verifyWorkoutPhoto(
   }
 
   const useAi =
-    (userId !== undefined && canUseAiPhotoVerify(userId)) ||
+    (userId !== undefined && (await canUseAiPhotoVerify(userId))) ||
     (config.apiMode === "live" && !!config.openaiApiKey);
 
   if (useAi) {

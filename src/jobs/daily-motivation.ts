@@ -17,16 +17,16 @@ async function main(): Promise<void> {
   }
 
   const bot = new Bot(config.botToken);
-  const teams = getAllActiveTeams();
+  const teams = await getAllActiveTeams();
 
   for (const team of teams) {
-    const workout = ensureTodayWorkout(team.id);
+    const workout = await ensureTodayWorkout(team.id);
     if (!workout) continue;
 
     const exercise = getExercise(workout.exercise_slug);
-    const logs = getWorkoutLogs(workout.id);
+    const logs = await getWorkoutLogs(workout.id);
     const completed = logs.filter((l) => l.completed === 1).length;
-    const members = getTeamMembers(team.id);
+    const members = await getTeamMembers(team.id);
 
     const message = await getTeamDailyMessage(
       team.name,

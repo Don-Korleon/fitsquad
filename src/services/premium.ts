@@ -8,12 +8,12 @@ export const PREMIUM_FEATURES = [
   { emoji: "⭐", title: "Premium-статус", desc: "Значок в профиле и Mini App" },
 ] as const;
 
-export function canUseLiveAi(userId: number): boolean {
-  return isPremium(userId) || (config.apiMode === "live" && !!config.openaiApiKey);
+export async function canUseLiveAi(userId: number): Promise<boolean> {
+  return (await isPremium(userId)) || (config.apiMode === "live" && !!config.openaiApiKey);
 }
 
-export function canUseAiPhotoVerify(userId: number): boolean {
-  return isPremium(userId) || (config.apiMode === "live" && !!config.openaiApiKey);
+export async function canUseAiPhotoVerify(userId: number): Promise<boolean> {
+  return (await isPremium(userId)) || (config.apiMode === "live" && !!config.openaiApiKey);
 }
 
 export function getPremiumOffer() {
@@ -25,8 +25,8 @@ export function getPremiumOffer() {
   };
 }
 
-export function getUserPremiumInfo(userId: number) {
-  const status = getPremiumStatus(userId);
+export async function getUserPremiumInfo(userId: number) {
+  const status = await getPremiumStatus(userId);
   return {
     ...status,
     ...getPremiumOffer(),

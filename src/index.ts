@@ -2,11 +2,13 @@ import fs from "node:fs";
 import { webhookCallback } from "grammy";
 import { config } from "./config.js";
 import { createBot, initBot } from "./bot/index.js";
+import { initDb } from "./db/index.js";
 import { createServer, getWebhookPath } from "./server/index.js";
 
 async function main(): Promise<void> {
   fs.mkdirSync(config.uploadsDir, { recursive: true });
   fs.mkdirSync(config.dataDir, { recursive: true });
+  await initDb();
 
   const bot = createBot();
 

@@ -72,7 +72,10 @@ export function registerPremiumHandlers(bot: Bot): void {
     if (!payment.invoice_payload.startsWith("premium_")) return;
 
     const days = Number.parseInt(payment.invoice_payload.replace("premium_", ""), 10);
-    const granted = grantPremium(ctx.from!.id, Number.isFinite(days) ? days : config.premiumDays);
+    const granted = await grantPremium(
+      ctx.from!.id,
+      Number.isFinite(days) ? days : config.premiumDays
+    );
     const until = new Date(granted.until).toLocaleDateString("ru-RU");
 
     await ctx.reply(

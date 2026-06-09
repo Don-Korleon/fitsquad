@@ -19,6 +19,7 @@
     "node": ">=22.5.0"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.3",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "grammy": "^1.35.0",

@@ -5,11 +5,11 @@ import { getStoredAppssVerifyCode, setStoredAppssVerifyCode } from "../db/index.
 const APPSS_COMMAND = "appss_verify";
 
 /** Код для ответа: аргумент → БД → APPSS_VERIFY_SECRET. */
-export function resolveAppssVerifyCode(argument?: string): string | null {
+export async function resolveAppssVerifyCode(argument?: string): Promise<string | null> {
   const arg = argument?.trim() ?? "";
   if (arg) return arg;
 
-  const stored = getStoredAppssVerifyCode();
+  const stored = await getStoredAppssVerifyCode();
   if (stored) return stored;
 
   const secret = config.appssVerifySecret.trim();
@@ -30,12 +30,12 @@ export function parseAppssStartParam(payload: string): string | null {
 export async function replyAppssVerifyCode(ctx: Context, argument?: string): Promise<void> {
   const arg = argument?.trim();
   if (arg) {
-    setStoredAppssVerifyCode(arg);
+    await setStoredAppssVerifyCode(arg);
     await ctx.reply(arg);
     return;
   }
 
-  const code = resolveAppssVerifyCode();
+  const code = await resolveAppssVerifyCode();
   if (!code) {
     await ctx.reply(
       "Скопируйте код из appss.pro (поле «Ответ») и отправьте:\n/appss_verify ВАШ_КОД"

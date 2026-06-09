@@ -1,121 +1,8 @@
-import fs from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "../config.js";
 import { pickDailyExercise, pickExerciseForUser } from "../services/exercises.js";
 import { generateInviteCode } from "../utils/helpers.js";
-
-fs.mkdirSync(config.dataDir, { recursive: true });
-
-const db = new DatabaseSync(config.dbPath);
-
-db.exec("PRAGMA foreign_keys = ON");
-db.exec("PRAGMA journal_mode = WAL");
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    telegram_id INTEGER PRIMARY KEY,
-    username TEXT,
-    first_name TEXT,
-    fs_tokens INTEGER DEFAULT 0,
-    streak_days INTEGER DEFAULT 0,
-    last_workout_date TEXT,
-    total_workouts INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS teams (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    invite_code TEXT UNIQUE NOT NULL,
-    captain_id INTEGER NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (captain_id) REFERENCES users(telegram_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS team_members (
-    team_id TEXT NOT NULL,
-    user_id INTEGER NOT NULL,
-    joined_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (team_id, user_id),
-    FOREIGN KEY (team_id) REFERENCES teams(id),
-    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS team_workouts (
-    id TEXT PRIMARY KEY,
-    team_id TEXT NOT NULL,
-    exercise_slug TEXT NOT NULL,
-    target_reps INTEGER NOT NULL,
-    target_sets INTEGER NOT NULL,
-    duration_sec INTEGER,
-    workout_date TEXT NOT NULL,
-    status TEXT DEFAULT 'active',
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (team_id) REFERENCES teams(id),
-    UNIQUE(team_id, workout_date)
-  );
-
-  CREATE TABLE IF NOT EXISTS workout_logs (
-    id TEXT PRIMARY KEY,
-    team_workout_id TEXT NOT NULL,
-    user_id INTEGER NOT NULL,
-    completed INTEGER DEFAULT 0,
-    photo_path TEXT,
-    photo_verified INTEGER DEFAULT 0,
-    fs_earned INTEGER DEFAULT 0,
-    completed_at TEXT,
-    FOREIGN KEY (team_workout_id) REFERENCES team_workouts(id),
-    FOREIGN KEY (user_id) REFERENCES users(telegram_id),
-    UNIQUE(team_workout_id, user_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS achievements (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    earned_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(user_id, type),
-    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS app_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT DEFAULT (datetime('now'))
-  );
-`);
-
-try {
-  db.exec(`ALTER TABLE workout_logs ADD COLUMN exercise_slug TEXT`);
-} catch {
-  /* exists */
-}
-try {
-  db.exec(`ALTER TABLE workout_logs ADD COLUMN target_reps INTEGER`);
-} catch {
-  /* exists */
-}
-try {
-  db.exec(`ALTER TABLE workout_logs ADD COLUMN target_sets INTEGER`);
-} catch {
-  /* exists */
-}
-try {
-  db.exec(`ALTER TABLE workout_logs ADD COLUMN duration_sec INTEGER`);
-} catch {
-  /* exists */
-}
-try {
-  db.exec(`ALTER TABLE users ADD COLUMN solo_mode INTEGER DEFAULT 0`);
-} catch {
-  /* exists */
-}
-try {
-  db.exec(`ALTER TABLE users ADD COLUMN premium_until TEXT`);
-} catch {
-  /* exists */
-}
+import { dbAll, dbExec, dbGet, dbRun, initDb } from "./client.js";
 
 const SOLO_INVITE_PREFIX = "SOLO";
 
@@ -131,18 +18,26 @@ export function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function upsertUser(telegramId: number, username?: string, firstName?: string): void {
-  db.prepare(
+export async function upsertUser(
+  telegramId: number,
+  username?: string,
+  firstName?: string
+): Promise<void> {
+  await dbRun(
     `INSERT INTO users (telegram_id, username, first_name)
      VALUES (?, ?, ?)
      ON CONFLICT(telegram_id) DO UPDATE SET
        username = excluded.username,
-       first_name = excluded.first_name`
-  ).run(telegramId, username ?? null, firstName ?? null);
+       first_name = excluded.first_name`,
+    [telegramId, username ?? null, firstName ?? null]
+  );
 }
 
-export function getUser(telegramId: number) {
-  return db.prepare(`SELECT * FROM users WHERE telegram_id = ?`).get(telegramId) as
+export async function getUser(telegramId: number) {
+  return (await dbGet(
+    `SELECT * FROM users WHERE telegram_id = ?`,
+    [telegramId]
+  )) as
     | {
         telegram_id: number;
         username: string | null;
@@ -157,25 +52,25 @@ export function getUser(telegramId: number) {
     | undefined;
 }
 
-export function isSoloModeEnabled(userId: number): boolean {
-  return !!getUser(userId)?.solo_mode;
+export async function isSoloModeEnabled(userId: number): Promise<boolean> {
+  return !!(await getUser(userId))?.solo_mode;
 }
 
-export function isPremium(userId: number): boolean {
-  const until = getUser(userId)?.premium_until;
+export async function isPremium(userId: number): Promise<boolean> {
+  const until = (await getUser(userId))?.premium_until;
   if (!until) return false;
   return new Date(until) > new Date();
 }
 
-export function getPremiumStatus(userId: number) {
-  const until = getUser(userId)?.premium_until ?? null;
+export async function getPremiumStatus(userId: number) {
+  const until = (await getUser(userId))?.premium_until ?? null;
   const active = until ? new Date(until) > new Date() : false;
   return { isPremium: active, premiumUntil: active ? until : null };
 }
 
-export function grantPremium(userId: number, days: number): { until: string } {
+export async function grantPremium(userId: number, days: number): Promise<{ until: string }> {
   const now = new Date();
-  const user = getUser(userId);
+  const user = await getUser(userId);
   let start = now;
   if (user?.premium_until) {
     const current = new Date(user.premium_until);
@@ -183,99 +78,101 @@ export function grantPremium(userId: number, days: number): { until: string } {
   }
   const until = new Date(start.getTime() + days * 86_400_000);
   const untilIso = until.toISOString();
-  db.prepare(`UPDATE users SET premium_until = ? WHERE telegram_id = ?`).run(untilIso, userId);
+  await dbRun(`UPDATE users SET premium_until = ? WHERE telegram_id = ?`, [untilIso, userId]);
   return { until: untilIso };
 }
 
 /** Нельзя вступить/создать команду, пока включён Solo */
-export function assertCanJoinTeam(userId: number): { ok: boolean; error?: string } {
-  if (isSoloModeEnabled(userId)) {
+export async function assertCanJoinTeam(userId: number): Promise<{ ok: boolean; error?: string }> {
+  if (await isSoloModeEnabled(userId)) {
     return {
       ok: false,
       error: "Включён Solo режим. Сначала выключите его — /team → ❌ Выключить Solo",
     };
   }
-  if (getUserTeam(userId)) {
+  if (await getUserTeam(userId)) {
     return { ok: false, error: "Вы уже в команде" };
   }
   return { ok: true };
 }
 
 /** Нельзя включить Solo, пока пользователь в команде */
-export function assertCanEnableSolo(userId: number): { ok: boolean; error?: string } {
-  if (getUserTeam(userId)) {
+export async function assertCanEnableSolo(
+  userId: number
+): Promise<{ ok: boolean; error?: string }> {
+  if (await getUserTeam(userId)) {
     return { ok: false, error: "Сначала выйдите из команды" };
   }
-  if (isSoloModeEnabled(userId)) {
+  if (await isSoloModeEnabled(userId)) {
     return { ok: false, error: "Solo режим уже включён" };
   }
   return { ok: true };
 }
 
-function clearSoloMode(userId: number): void {
-  db.prepare(`UPDATE users SET solo_mode = 0 WHERE telegram_id = ?`).run(userId);
+async function clearSoloMode(userId: number): Promise<void> {
+  await dbRun(`UPDATE users SET solo_mode = 0 WHERE telegram_id = ?`, [userId]);
   const teamId = soloTeamId(userId);
-  const exists = db.prepare(`SELECT 1 FROM teams WHERE id = ?`).get(teamId);
-  if (exists) deleteTeamById(teamId);
+  const exists = await dbGet(`SELECT 1 FROM teams WHERE id = ?`, [teamId]);
+  if (exists) await deleteTeamById(teamId);
 }
 
-export function ensureSoloTeam(userId: number) {
+export async function ensureSoloTeam(userId: number) {
   const teamId = soloTeamId(userId);
-  let team = db.prepare(`SELECT * FROM teams WHERE id = ?`).get(teamId) as
+  let team = (await dbGet(`SELECT * FROM teams WHERE id = ?`, [teamId])) as
     | { id: string; name: string; invite_code: string; captain_id: number }
     | undefined;
 
   if (!team) {
     const inviteCode = `${SOLO_INVITE_PREFIX}${userId}`;
-    db.prepare(`INSERT INTO teams (id, name, invite_code, captain_id) VALUES (?, ?, ?, ?)`).run(
+    await dbRun(`INSERT INTO teams (id, name, invite_code, captain_id) VALUES (?, ?, ?, ?)`, [
       teamId,
       "Solo",
       inviteCode,
-      userId
-    );
-    db.prepare(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`).run(teamId, userId);
-    team = db.prepare(`SELECT * FROM teams WHERE id = ?`).get(teamId) as typeof team;
+      userId,
+    ]);
+    await dbRun(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`, [teamId, userId]);
+    team = (await dbGet(`SELECT * FROM teams WHERE id = ?`, [teamId])) as typeof team;
   }
   return team!;
 }
 
-export function enableSoloMode(userId: number): { ok: boolean; error?: string } {
-  const check = assertCanEnableSolo(userId);
+export async function enableSoloMode(userId: number): Promise<{ ok: boolean; error?: string }> {
+  const check = await assertCanEnableSolo(userId);
   if (!check.ok) return check;
-  upsertUser(userId);
-  db.prepare(`UPDATE users SET solo_mode = 1 WHERE telegram_id = ?`).run(userId);
-  ensureSoloTeam(userId);
+  await upsertUser(userId);
+  await dbRun(`UPDATE users SET solo_mode = 1 WHERE telegram_id = ?`, [userId]);
+  await ensureSoloTeam(userId);
   return { ok: true };
 }
 
-export function disableSoloMode(userId: number): { ok: boolean; error?: string } {
-  if (!isSoloModeEnabled(userId)) {
+export async function disableSoloMode(userId: number): Promise<{ ok: boolean; error?: string }> {
+  if (!(await isSoloModeEnabled(userId))) {
     return { ok: false, error: "Solo режим не включён" };
   }
-  clearSoloMode(userId);
+  await clearSoloMode(userId);
   return { ok: true };
 }
 
-export function getTrainingContext(userId: number): {
+export async function getTrainingContext(userId: number): Promise<{
   teamId: string;
   mode: "team" | "solo";
-} | null {
-  const socialTeam = getUserTeam(userId);
+} | null> {
+  const socialTeam = await getUserTeam(userId);
   if (socialTeam) return { teamId: socialTeam.id, mode: "team" };
-  if (!isSoloModeEnabled(userId)) return null;
-  return { teamId: ensureSoloTeam(userId).id, mode: "solo" };
+  if (!(await isSoloModeEnabled(userId))) return null;
+  return { teamId: (await ensureSoloTeam(userId)).id, mode: "solo" };
 }
 
-export function addFsTokens(telegramId: number, amount: number): number {
-  db.prepare(`UPDATE users SET fs_tokens = fs_tokens + ? WHERE telegram_id = ?`).run(
+export async function addFsTokens(telegramId: number, amount: number): Promise<number> {
+  await dbRun(`UPDATE users SET fs_tokens = fs_tokens + ? WHERE telegram_id = ?`, [
     amount,
-    telegramId
-  );
-  return getUser(telegramId)?.fs_tokens ?? amount;
+    telegramId,
+  ]);
+  return (await getUser(telegramId))?.fs_tokens ?? amount;
 }
 
-export function updateStreak(telegramId: number): number {
-  const user = getUser(telegramId);
+export async function updateStreak(telegramId: number): Promise<number> {
+  const user = await getUser(telegramId);
   if (!user) return 0;
   const today = todayKey();
   const yesterday = new Date();
@@ -292,66 +189,66 @@ export function updateStreak(telegramId: number): number {
     streak = 1;
   }
 
-  db.prepare(
-    `UPDATE users SET streak_days = ?, last_workout_date = ?, total_workouts = total_workouts + 1 WHERE telegram_id = ?`
-  ).run(streak, today, telegramId);
+  await dbRun(
+    `UPDATE users SET streak_days = ?, last_workout_date = ?, total_workouts = total_workouts + 1 WHERE telegram_id = ?`,
+    [streak, today, telegramId]
+  );
 
   return streak;
 }
 
-export function createTeam(
+export async function createTeam(
   captainId: number,
   name: string
-): { ok: boolean; error?: string; id?: string; inviteCode?: string } {
-  const check = assertCanJoinTeam(captainId);
+): Promise<{ ok: boolean; error?: string; id?: string; inviteCode?: string }> {
+  const check = await assertCanJoinTeam(captainId);
   if (!check.ok) return check;
 
   const id = uuidv4();
   let inviteCode = generateInviteCode();
-  while (getTeamByInviteCode(inviteCode)) {
+  while (await getTeamByInviteCode(inviteCode)) {
     inviteCode = generateInviteCode();
   }
-  db.prepare(`INSERT INTO teams (id, name, invite_code, captain_id) VALUES (?, ?, ?, ?)`).run(
+  await dbRun(`INSERT INTO teams (id, name, invite_code, captain_id) VALUES (?, ?, ?, ?)`, [
     id,
     name,
     inviteCode,
-    captainId
-  );
-  db.prepare(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`).run(id, captainId);
+    captainId,
+  ]);
+  await dbRun(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`, [id, captainId]);
   return { ok: true, id, inviteCode };
 }
 
-export function getTeamByInviteCode(code: string) {
-  return db
-    .prepare(`SELECT * FROM teams WHERE invite_code = ? AND invite_code NOT LIKE ?`)
-    .get(code.toUpperCase(), `${SOLO_INVITE_PREFIX}%`) as
+export async function getTeamByInviteCode(code: string) {
+  return (await dbGet(
+    `SELECT * FROM teams WHERE invite_code = ? AND invite_code NOT LIKE ?`,
+    [code.toUpperCase(), `${SOLO_INVITE_PREFIX}%`]
+  )) as
     | { id: string; name: string; invite_code: string; captain_id: number }
     | undefined;
 }
 
-export function getUserTeam(userId: number) {
-  const row = db
-    .prepare(
-      `SELECT t.* FROM teams t
-       JOIN team_members tm ON tm.team_id = t.id
-       WHERE tm.user_id = ? AND t.invite_code NOT LIKE ?`
-    )
-    .get(userId, `${SOLO_INVITE_PREFIX}%`) as
+export async function getUserTeam(userId: number) {
+  const row = (await dbGet(
+    `SELECT t.* FROM teams t
+     JOIN team_members tm ON tm.team_id = t.id
+     WHERE tm.user_id = ? AND t.invite_code NOT LIKE ?`,
+    [userId, `${SOLO_INVITE_PREFIX}%`]
+  )) as
     | { id: string; name: string; invite_code: string; captain_id: number }
     | undefined;
   return row;
 }
 
-export function getTeamMembers(teamId: string) {
-  return db
-    .prepare(
-      `SELECT u.telegram_id, u.username, u.first_name, u.fs_tokens
-       FROM team_members tm
-       JOIN users u ON u.telegram_id = tm.user_id
-       WHERE tm.team_id = ?
-       ORDER BY tm.joined_at`
-    )
-    .all(teamId) as Array<{
+export async function getTeamMembers(teamId: string) {
+  return (await dbAll(
+    `SELECT u.telegram_id, u.username, u.first_name, u.fs_tokens
+     FROM team_members tm
+     JOIN users u ON u.telegram_id = tm.user_id
+     WHERE tm.team_id = ?
+     ORDER BY tm.joined_at`,
+    [teamId]
+  )) as Array<{
       telegram_id: number;
       username: string | null;
       first_name: string | null;
@@ -359,98 +256,100 @@ export function getTeamMembers(teamId: string) {
     }>;
 }
 
-export function getTeamMemberCount(teamId: string): number {
-  const row = db
-    .prepare(`SELECT COUNT(*) as cnt FROM team_members WHERE team_id = ?`)
-    .get(teamId) as { cnt: number };
+export async function getTeamMemberCount(teamId: string): Promise<number> {
+  const row = (await dbGet(`SELECT COUNT(*) as cnt FROM team_members WHERE team_id = ?`, [
+    teamId,
+  ])) as { cnt: number };
   return row.cnt;
 }
 
-export function joinTeam(teamId: string, userId: number): { ok: boolean; error?: string } {
-  const team = db.prepare(`SELECT * FROM teams WHERE id = ?`).get(teamId) as
+export async function joinTeam(teamId: string, userId: number): Promise<{ ok: boolean; error?: string }> {
+  const team = (await dbGet(`SELECT * FROM teams WHERE id = ?`, [teamId])) as
     | { id: string; invite_code: string }
     | undefined;
   if (!team || isSoloTeam(team as { id: string; invite_code: string })) {
     return { ok: false, error: "Команда не найдена" };
   }
-  const soloCheck = assertCanJoinTeam(userId);
+  const soloCheck = await assertCanJoinTeam(userId);
   if (!soloCheck.ok) return soloCheck;
 
-  const count = getTeamMemberCount(teamId);
+  const count = await getTeamMemberCount(teamId);
   if (count >= config.maxTeamSize) {
     return { ok: false, error: "Команда заполнена (макс. 5 человек)" };
   }
 
-  db.prepare(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`).run(teamId, userId);
-  const todayWorkout = getTodayWorkoutForTeam(teamId);
-  if (todayWorkout) ensureUserWorkoutLog(todayWorkout.id, userId);
+  await dbRun(`INSERT INTO team_members (team_id, user_id) VALUES (?, ?)`, [teamId, userId]);
+  const todayWorkout = await getTodayWorkoutForTeam(teamId);
+  if (todayWorkout) await ensureUserWorkoutLog(todayWorkout.id, userId);
   return { ok: true };
 }
 
-function deleteTeamById(teamId: string): void {
-  const workouts = db
-    .prepare(`SELECT id FROM team_workouts WHERE team_id = ?`)
-    .all(teamId) as Array<{ id: string }>;
+async function deleteTeamById(teamId: string): Promise<void> {
+  const workouts = (await dbAll(`SELECT id FROM team_workouts WHERE team_id = ?`, [teamId])) as Array<{
+    id: string;
+  }>;
   for (const w of workouts) {
-    db.prepare(`DELETE FROM workout_logs WHERE team_workout_id = ?`).run(w.id);
+    await dbRun(`DELETE FROM workout_logs WHERE team_workout_id = ?`, [w.id]);
   }
-  db.prepare(`DELETE FROM team_workouts WHERE team_id = ?`).run(teamId);
-  db.prepare(`DELETE FROM team_members WHERE team_id = ?`).run(teamId);
-  db.prepare(`DELETE FROM teams WHERE id = ?`).run(teamId);
+  await dbRun(`DELETE FROM team_workouts WHERE team_id = ?`, [teamId]);
+  await dbRun(`DELETE FROM team_members WHERE team_id = ?`, [teamId]);
+  await dbRun(`DELETE FROM teams WHERE id = ?`, [teamId]);
 }
 
-export function leaveTeam(userId: number): {
+export async function leaveTeam(userId: number): Promise<{
   ok: boolean;
   error?: string;
   disbanded?: boolean;
   teamName?: string;
   newCaptainId?: number;
-} {
-  const team = getUserTeam(userId);
+}> {
+  const team = await getUserTeam(userId);
   if (!team) return { ok: false, error: "Вы не в команде" };
 
-  const count = getTeamMemberCount(team.id);
+  const count = await getTeamMemberCount(team.id);
 
   if (team.captain_id === userId) {
     if (count <= 1) {
-      deleteTeamById(team.id);
+      await deleteTeamById(team.id);
       return { ok: true, disbanded: true, teamName: team.name };
     }
-    const nextCaptain = db
-      .prepare(
-        `SELECT user_id FROM team_members
-         WHERE team_id = ? AND user_id != ?
-         ORDER BY joined_at ASC LIMIT 1`
-      )
-      .get(team.id, userId) as { user_id: number } | undefined;
+    const nextCaptain = (await dbGet(
+      `SELECT user_id FROM team_members
+       WHERE team_id = ? AND user_id != ?
+       ORDER BY joined_at ASC LIMIT 1`,
+      [team.id, userId]
+    )) as { user_id: number } | undefined;
     if (!nextCaptain) {
-      deleteTeamById(team.id);
+      await deleteTeamById(team.id);
       return { ok: true, disbanded: true, teamName: team.name };
     }
-    db.prepare(`UPDATE teams SET captain_id = ? WHERE id = ?`).run(nextCaptain.user_id, team.id);
-    db.prepare(`DELETE FROM team_members WHERE team_id = ? AND user_id = ?`).run(team.id, userId);
+    await dbRun(`UPDATE teams SET captain_id = ? WHERE id = ?`, [nextCaptain.user_id, team.id]);
+    await dbRun(`DELETE FROM team_members WHERE team_id = ? AND user_id = ?`, [team.id, userId]);
     return { ok: true, teamName: team.name, newCaptainId: nextCaptain.user_id };
   }
 
-  db.prepare(`DELETE FROM team_members WHERE team_id = ? AND user_id = ?`).run(team.id, userId);
+  await dbRun(`DELETE FROM team_members WHERE team_id = ? AND user_id = ?`, [team.id, userId]);
   return { ok: true, teamName: team.name };
 }
 
-export function disbandTeam(userId: number): { ok: boolean; error?: string; teamName?: string } {
-  const team = getUserTeam(userId);
+export async function disbandTeam(
+  userId: number
+): Promise<{ ok: boolean; error?: string; teamName?: string }> {
+  const team = await getUserTeam(userId);
   if (!team) return { ok: false, error: "Вы не в команде" };
   if (team.captain_id !== userId) {
     return { ok: false, error: "Только капитан может расформировать команду" };
   }
-  deleteTeamById(team.id);
+  await deleteTeamById(team.id);
   return { ok: true, teamName: team.name };
 }
 
-export function ensureTodayWorkout(teamId: string) {
+export async function ensureTodayWorkout(teamId: string) {
   const today = todayKey();
-  const existing = db
-    .prepare(`SELECT * FROM team_workouts WHERE team_id = ? AND workout_date = ?`)
-    .get(teamId, today) as
+  const existing = (await dbGet(
+    `SELECT * FROM team_workouts WHERE team_id = ? AND workout_date = ?`,
+    [teamId, today]
+  )) as
     | {
         id: string;
         team_id: string;
@@ -467,41 +366,42 @@ export function ensureTodayWorkout(teamId: string) {
 
   const exercise = pickDailyExercise();
   const id = uuidv4();
-  db.prepare(
+  await dbRun(
     `INSERT INTO team_workouts (id, team_id, exercise_slug, target_reps, target_sets, duration_sec, workout_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    teamId,
-    exercise.slug,
-    exercise.defaultReps,
-    exercise.defaultSets,
-    exercise.durationSec ?? null,
-    today
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      teamId,
+      exercise.slug,
+      exercise.defaultReps,
+      exercise.defaultSets,
+      exercise.durationSec ?? null,
+      today,
+    ]
   );
 
-  const members = getTeamMembers(teamId);
+  const members = await getTeamMembers(teamId);
   for (const m of members) {
-    ensureUserWorkoutLog(id, m.telegram_id);
+    await ensureUserWorkoutLog(id, m.telegram_id);
   }
 
-  return db.prepare(`SELECT * FROM team_workouts WHERE id = ?`).get(id) as typeof existing;
+  return (await dbGet(`SELECT * FROM team_workouts WHERE id = ?`, [id])) as typeof existing;
 }
 
-function resolveExerciseAssignment(
+async function resolveExerciseAssignment(
   userId: number,
   teamSlug: string,
   teamReps: number,
   teamSets: number,
   teamDuration: number | null
-): {
+): Promise<{
   slug: string;
   reps: number;
   sets: number;
   durationSec: number | null;
   alternativeUsed: boolean;
-} {
-  const completed = getUserCompletedExerciseSlugsToday(userId);
+}> {
+  const completed = await getUserCompletedExerciseSlugsToday(userId);
   if (!completed.includes(teamSlug)) {
     return {
       slug: teamSlug,
@@ -521,40 +421,47 @@ function resolveExerciseAssignment(
   };
 }
 
-export function getUserCompletedExerciseSlugsToday(userId: number): string[] {
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT COALESCE(wl.exercise_slug, tw.exercise_slug) AS slug
-       FROM workout_logs wl
-       JOIN team_workouts tw ON tw.id = wl.team_workout_id
-       WHERE wl.user_id = ? AND tw.workout_date = ? AND wl.completed = 1`
-    )
-    .all(userId, todayKey()) as Array<{ slug: string }>;
+export async function getUserCompletedExerciseSlugsToday(userId: number): Promise<string[]> {
+  const rows = (await dbAll(
+    `SELECT DISTINCT COALESCE(wl.exercise_slug, tw.exercise_slug) AS slug
+     FROM workout_logs wl
+     JOIN team_workouts tw ON tw.id = wl.team_workout_id
+     WHERE wl.user_id = ? AND tw.workout_date = ? AND wl.completed = 1`,
+    [userId, todayKey()]
+  )) as Array<{ slug: string }>;
   return rows.map((r) => r.slug);
 }
 
-export function hasUserCompletedExerciseToday(userId: number, exerciseSlug: string): boolean {
-  return getUserCompletedExerciseSlugsToday(userId).includes(exerciseSlug);
+export async function hasUserCompletedExerciseToday(
+  userId: number,
+  exerciseSlug: string
+): Promise<boolean> {
+  return (await getUserCompletedExerciseSlugsToday(userId)).includes(exerciseSlug);
 }
 
-export function hasUserPhotoVerifiedExerciseToday(userId: number, exerciseSlug: string): boolean {
-  const row = db
-    .prepare(
-      `SELECT 1 FROM workout_logs wl
-       JOIN team_workouts tw ON tw.id = wl.team_workout_id
-       WHERE wl.user_id = ? AND tw.workout_date = ? AND wl.photo_verified = 1
-         AND COALESCE(wl.exercise_slug, tw.exercise_slug) = ?`
-    )
-    .get(userId, todayKey(), exerciseSlug);
+export async function hasUserPhotoVerifiedExerciseToday(
+  userId: number,
+  exerciseSlug: string
+): Promise<boolean> {
+  const row = await dbGet(
+    `SELECT 1 FROM workout_logs wl
+     JOIN team_workouts tw ON tw.id = wl.team_workout_id
+     WHERE wl.user_id = ? AND tw.workout_date = ? AND wl.photo_verified = 1
+       AND COALESCE(wl.exercise_slug, tw.exercise_slug) = ?`,
+    [userId, todayKey(), exerciseSlug]
+  );
   return !!row;
 }
 
-export function syncUserWorkoutLogAssignment(teamWorkoutId: string, userId: number): void {
-  const tw = getTeamWorkout(teamWorkoutId);
-  const log = getUserWorkoutLog(teamWorkoutId, userId);
+export async function syncUserWorkoutLogAssignment(
+  teamWorkoutId: string,
+  userId: number
+): Promise<void> {
+  const tw = await getTeamWorkout(teamWorkoutId);
+  const log = await getUserWorkoutLog(teamWorkoutId, userId);
   if (!tw || !log || log.completed === 1) return;
 
-  const assignment = resolveExerciseAssignment(
+  const assignment = await resolveExerciseAssignment(
     userId,
     tw.exercise_slug,
     tw.target_reps,
@@ -562,58 +469,60 @@ export function syncUserWorkoutLogAssignment(teamWorkoutId: string, userId: numb
     tw.duration_sec
   );
 
-  db.prepare(
+  await dbRun(
     `UPDATE workout_logs SET exercise_slug = ?, target_reps = ?, target_sets = ?, duration_sec = ?
-     WHERE team_workout_id = ? AND user_id = ?`
-  ).run(
-    assignment.slug,
-    assignment.reps,
-    assignment.sets,
-    assignment.durationSec,
-    teamWorkoutId,
-    userId
+     WHERE team_workout_id = ? AND user_id = ?`,
+    [
+      assignment.slug,
+      assignment.reps,
+      assignment.sets,
+      assignment.durationSec,
+      teamWorkoutId,
+      userId,
+    ]
   );
 }
 
-export function ensureUserWorkoutLog(teamWorkoutId: string, userId: number) {
-  const tw = getTeamWorkout(teamWorkoutId);
+export async function ensureUserWorkoutLog(teamWorkoutId: string, userId: number) {
+  const tw = await getTeamWorkout(teamWorkoutId);
   if (!tw) return undefined;
 
-  let log = getUserWorkoutLog(teamWorkoutId, userId);
+  let log = await getUserWorkoutLog(teamWorkoutId, userId);
   if (!log) {
-    const assignment = resolveExerciseAssignment(
+    const assignment = await resolveExerciseAssignment(
       userId,
       tw.exercise_slug,
       tw.target_reps,
       tw.target_sets,
       tw.duration_sec
     );
-    db.prepare(
+    await dbRun(
       `INSERT INTO workout_logs (id, team_workout_id, user_id, exercise_slug, target_reps, target_sets, duration_sec)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      uuidv4(),
-      teamWorkoutId,
-      userId,
-      assignment.slug,
-      assignment.reps,
-      assignment.sets,
-      assignment.durationSec
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuidv4(),
+        teamWorkoutId,
+        userId,
+        assignment.slug,
+        assignment.reps,
+        assignment.sets,
+        assignment.durationSec,
+      ]
     );
-    log = getUserWorkoutLog(teamWorkoutId, userId);
+    log = await getUserWorkoutLog(teamWorkoutId, userId);
   } else if (log.completed !== 1) {
-    syncUserWorkoutLogAssignment(teamWorkoutId, userId);
-    log = getUserWorkoutLog(teamWorkoutId, userId);
+    await syncUserWorkoutLogAssignment(teamWorkoutId, userId);
+    log = await getUserWorkoutLog(teamWorkoutId, userId);
   }
   return log;
 }
 
-export function getUserWorkoutView(teamWorkoutId: string, userId: number) {
-  const tw = getTeamWorkout(teamWorkoutId);
+export async function getUserWorkoutView(teamWorkoutId: string, userId: number) {
+  const tw = await getTeamWorkout(teamWorkoutId);
   if (!tw) return null;
 
-  ensureUserWorkoutLog(teamWorkoutId, userId);
-  const log = getUserWorkoutLog(teamWorkoutId, userId);
+  await ensureUserWorkoutLog(teamWorkoutId, userId);
+  const log = await getUserWorkoutLog(teamWorkoutId, userId);
   if (!log) return null;
 
   const slug = log.exercise_slug ?? tw.exercise_slug;
@@ -629,15 +538,15 @@ export function getUserWorkoutView(teamWorkoutId: string, userId: number) {
   };
 }
 
-export function ensureTodayWorkoutForUser(teamId: string, userId: number) {
-  const workout = ensureTodayWorkout(teamId);
+export async function ensureTodayWorkoutForUser(teamId: string, userId: number) {
+  const workout = await ensureTodayWorkout(teamId);
   if (!workout) return null;
-  ensureUserWorkoutLog(workout.id, userId);
+  await ensureUserWorkoutLog(workout.id, userId);
   return workout;
 }
 
-export function getTeamWorkout(id: string) {
-  return db.prepare(`SELECT * FROM team_workouts WHERE id = ?`).get(id) as
+export async function getTeamWorkout(id: string) {
+  return (await dbGet(`SELECT * FROM team_workouts WHERE id = ?`, [id])) as
     | {
         id: string;
         team_id: string;
@@ -651,16 +560,15 @@ export function getTeamWorkout(id: string) {
     | undefined;
 }
 
-export function getTodayWorkoutForTeam(teamId: string) {
-  return db
-    .prepare(`SELECT * FROM team_workouts WHERE team_id = ? AND workout_date = ?`)
-    .get(teamId, todayKey()) as ReturnType<typeof getTeamWorkout>;
+export async function getTodayWorkoutForTeam(teamId: string) {
+  return (await dbGet(`SELECT * FROM team_workouts WHERE team_id = ? AND workout_date = ?`, [
+    teamId,
+    todayKey(),
+  ])) as Awaited<ReturnType<typeof getTeamWorkout>>;
 }
 
-export function getWorkoutLogs(workoutId: string) {
-  return db
-    .prepare(`SELECT * FROM workout_logs WHERE team_workout_id = ?`)
-    .all(workoutId) as Array<{
+export async function getWorkoutLogs(workoutId: string) {
+  return (await dbAll(`SELECT * FROM workout_logs WHERE team_workout_id = ?`, [workoutId])) as Array<{
       id: string;
       team_workout_id: string;
       user_id: number;
@@ -676,96 +584,100 @@ export function getWorkoutLogs(workoutId: string) {
     }>;
 }
 
-export function getUserWorkoutLog(workoutId: string, userId: number) {
-  return db
-    .prepare(`SELECT * FROM workout_logs WHERE team_workout_id = ? AND user_id = ?`)
-    .get(workoutId, userId) as ReturnType<typeof getWorkoutLogs>[number] | undefined;
+export async function getUserWorkoutLog(workoutId: string, userId: number) {
+  return (await dbGet(
+    `SELECT * FROM workout_logs WHERE team_workout_id = ? AND user_id = ?`,
+    [workoutId, userId]
+  )) as Awaited<ReturnType<typeof getWorkoutLogs>>[number] | undefined;
 }
 
-export function completeWorkout(
+export async function completeWorkout(
   workoutId: string,
   userId: number,
   fsEarned: number
-): void {
-  db.prepare(
+): Promise<void> {
+  await dbRun(
     `UPDATE workout_logs SET completed = 1, fs_earned = ?, completed_at = datetime('now')
-     WHERE team_workout_id = ? AND user_id = ?`
-  ).run(fsEarned, workoutId, userId);
+     WHERE team_workout_id = ? AND user_id = ?`,
+    [fsEarned, workoutId, userId]
+  );
 }
 
-export function verifyWorkoutPhoto(
+export async function verifyWorkoutPhoto(
   workoutId: string,
   userId: number,
   photoPath: string,
   extraFs: number
-): void {
-  db.prepare(
+): Promise<void> {
+  await dbRun(
     `UPDATE workout_logs SET photo_path = ?, photo_verified = 1, fs_earned = fs_earned + ?
-     WHERE team_workout_id = ? AND user_id = ?`
-  ).run(photoPath, extraFs, workoutId, userId);
+     WHERE team_workout_id = ? AND user_id = ?`,
+    [photoPath, extraFs, workoutId, userId]
+  );
 }
 
-export function isWorkoutFullyCompleted(workoutId: string): boolean {
-  const logs = getWorkoutLogs(workoutId);
+export async function isWorkoutFullyCompleted(workoutId: string): Promise<boolean> {
+  const logs = await getWorkoutLogs(workoutId);
   if (logs.length === 0) return false;
   return logs.every((l) => l.completed === 1);
 }
 
-export function markWorkoutCompleted(workoutId: string): void {
-  db.prepare(`UPDATE team_workouts SET status = 'completed' WHERE id = ?`).run(workoutId);
+export async function markWorkoutCompleted(workoutId: string): Promise<void> {
+  await dbRun(`UPDATE team_workouts SET status = 'completed' WHERE id = ?`, [workoutId]);
 }
 
-export function grantAchievement(userId: number, type: string): boolean {
-  const existing = db
-    .prepare(`SELECT 1 FROM achievements WHERE user_id = ? AND type = ?`)
-    .get(userId, type);
+export async function grantAchievement(userId: number, type: string): Promise<boolean> {
+  const existing = await dbGet(`SELECT 1 FROM achievements WHERE user_id = ? AND type = ?`, [
+    userId,
+    type,
+  ]);
   if (existing) return false;
-  db.prepare(`INSERT INTO achievements (id, user_id, type) VALUES (?, ?, ?)`).run(
+  await dbRun(`INSERT INTO achievements (id, user_id, type) VALUES (?, ?, ?)`, [
     uuidv4(),
     userId,
-    type
-  );
+    type,
+  ]);
   return true;
 }
 
-export function getAchievements(userId: number) {
-  return db
-    .prepare(`SELECT type, earned_at FROM achievements WHERE user_id = ? ORDER BY earned_at`)
-    .all(userId) as Array<{ type: string; earned_at: string }>;
+export async function getAchievements(userId: number) {
+  return (await dbAll(
+    `SELECT type, earned_at FROM achievements WHERE user_id = ? ORDER BY earned_at`,
+    [userId]
+  )) as Array<{ type: string; earned_at: string }>;
 }
 
-export function countTeamWorkoutsCompleted(userId: number): number {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) as cnt FROM workout_logs wl
-       JOIN team_workouts tw ON tw.id = wl.team_workout_id
-       WHERE wl.user_id = ? AND wl.completed = 1`
-    )
-    .get(userId) as { cnt: number };
+export async function countTeamWorkoutsCompleted(userId: number): Promise<number> {
+  const row = (await dbGet(
+    `SELECT COUNT(*) as cnt FROM workout_logs wl
+     JOIN team_workouts tw ON tw.id = wl.team_workout_id
+     WHERE wl.user_id = ? AND wl.completed = 1`,
+    [userId]
+  )) as { cnt: number };
   return row.cnt;
 }
 
-export function getAllActiveTeams() {
-  return db
-    .prepare(`SELECT id, name, captain_id FROM teams WHERE invite_code NOT LIKE ?`)
-    .all(`${SOLO_INVITE_PREFIX}%`) as Array<{
+export async function getAllActiveTeams() {
+  return (await dbAll(
+    `SELECT id, name, captain_id FROM teams WHERE invite_code NOT LIKE ?`,
+    [`${SOLO_INVITE_PREFIX}%`]
+  )) as Array<{
     id: string;
     name: string;
     captain_id: number;
   }>;
 }
 
-export function getTeamLeaderboard(teamId: string, limit = 5) {
-  return db
-    .prepare(
-      `SELECT u.telegram_id, u.first_name, u.username, u.fs_tokens, u.streak_days
-       FROM team_members tm
-       JOIN users u ON u.telegram_id = tm.user_id
-       WHERE tm.team_id = ?
-       ORDER BY u.fs_tokens DESC
-       LIMIT ?`
-    )
-    .all(teamId, limit) as Array<{
+export async function getTeamLeaderboard(teamId: string, limit = 5) {
+  return (await dbAll(
+    `SELECT u.telegram_id, u.first_name, u.username, u.fs_tokens, u.streak_days
+     FROM team_members tm
+     JOIN users u ON u.telegram_id = tm.user_id
+     WHERE tm.team_id = ?
+     ORDER BY u.fs_tokens DESC
+     LIMIT ?`,
+    [teamId, limit]
+  )) as Array<{
       telegram_id: number;
       first_name: string | null;
       username: string | null;
@@ -776,22 +688,23 @@ export function getTeamLeaderboard(teamId: string, limit = 5) {
 
 const APPSS_VERIFY_SETTING_KEY = "appss_verify_code";
 
-export function getStoredAppssVerifyCode(): string | null {
-  const row = db
-    .prepare(`SELECT value FROM app_settings WHERE key = ?`)
-    .get(APPSS_VERIFY_SETTING_KEY) as { value: string } | undefined;
+export async function getStoredAppssVerifyCode(): Promise<string | null> {
+  const row = (await dbGet(`SELECT value FROM app_settings WHERE key = ?`, [
+    APPSS_VERIFY_SETTING_KEY,
+  ])) as { value: string } | undefined;
   const value = row?.value?.trim();
   return value || null;
 }
 
-export function setStoredAppssVerifyCode(code: string): void {
-  db.prepare(
+export async function setStoredAppssVerifyCode(code: string): Promise<void> {
+  await dbRun(
     `INSERT INTO app_settings (key, value, updated_at)
      VALUES (?, ?, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET
        value = excluded.value,
-       updated_at = excluded.updated_at`
-  ).run(APPSS_VERIFY_SETTING_KEY, code.trim());
+       updated_at = excluded.updated_at`,
+    [APPSS_VERIFY_SETTING_KEY, code.trim()]
+  );
 }
 
-export { db };
+export { dbAll, dbExec, dbGet, dbRun, initDb };

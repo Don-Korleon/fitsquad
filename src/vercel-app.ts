@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { webhookCallback } from "grammy";
 import { createBot, initBot } from "./bot/index.js";
 import { config } from "./config.js";
+import { initDb } from "./db/index.js";
 import { createServer, getWebhookPath } from "./server/index.js";
 
 fs.mkdirSync(config.uploadsDir, { recursive: true });
@@ -20,7 +21,7 @@ const app = createServer({
   }),
 });
 
-const botReady = initBot(bot).then(async () => {
+const botReady = initDb().then(() => initBot(bot)).then(async () => {
   if (
     process.env.VERCEL &&
     process.env.SKIP_SET_WEBHOOK !== "true" &&
