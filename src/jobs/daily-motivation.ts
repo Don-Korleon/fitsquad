@@ -8,6 +8,7 @@ import {
 } from "../db/index.js";
 import { getExercise } from "../services/exercises.js";
 import { getTeamDailyMessage } from "../services/aiTrainer.js";
+import { mainMenuKeyboard } from "../bot/keyboards.js";
 
 async function main(): Promise<void> {
   if (!config.botToken) {
@@ -38,7 +39,10 @@ async function main(): Promise<void> {
 
     for (const member of members) {
       try {
-        await bot.api.sendMessage(member.telegram_id, text, { parse_mode: "Markdown" });
+        await bot.api.sendMessage(member.telegram_id, text, {
+          parse_mode: "Markdown",
+          reply_markup: mainMenuKeyboard(),
+        });
       } catch {
         /* user blocked bot */
       }

@@ -2,6 +2,7 @@ import type { Bot } from "grammy";
 import { config } from "../config.js";
 import { grantPremium } from "../db/index.js";
 import { getPremiumOffer, PREMIUM_FEATURES } from "../services/premium.js";
+import { mainMenuKeyboard } from "./keyboards.js";
 
 let premiumBot: Bot | null = null;
 
@@ -48,7 +49,7 @@ export async function sendPremiumInvoice(bot: Bot, chatId: number): Promise<void
 
 export function registerPremiumHandlers(bot: Bot): void {
   bot.command("premium", async (ctx) => {
-    await ctx.reply(premiumDescription(), { parse_mode: "Markdown" });
+    await ctx.reply(premiumDescription(), { parse_mode: "Markdown", reply_markup: mainMenuKeyboard() });
     await sendPremiumInvoice(bot, ctx.chat!.id);
   });
 
@@ -76,7 +77,7 @@ export function registerPremiumHandlers(bot: Bot): void {
 
     await ctx.reply(
       `✅ *Premium активирован!*\n\nДействует до: *${until}*\n\n🤖 AI-тренер Pro\n📸 AI-верификация фото\n💎 FS Boost ×${config.premiumFsMultiplier}`,
-      { parse_mode: "Markdown" }
+      { parse_mode: "Markdown", reply_markup: mainMenuKeyboard() }
     );
   });
 }

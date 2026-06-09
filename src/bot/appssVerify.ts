@@ -1,12 +1,17 @@
 import type { Bot, Context } from "grammy";
 import { config } from "../config.js";
+import { getStoredAppssVerifyCode, setStoredAppssVerifyCode } from "../db/index.js";
 
 const APPSS_COMMAND = "appss_verify";
 
-/** Код для ответа: аргумент команды / start-param / APPSS_VERIFY_SECRET. */
+/** Код для ответа: аргумент → БД → APPSS_VERIFY_SECRET. */
 export function resolveAppssVerifyCode(argument?: string): string | null {
   const arg = argument?.trim() ?? "";
   if (arg) return arg;
+
+  const stored = getStoredAppssVerifyCode();
+  if (stored) return stored;
+
   const secret = config.appssVerifySecret.trim();
   return secret || null;
 }
@@ -23,13 +28,21 @@ export function parseAppssStartParam(payload: string): string | null {
 }
 
 export async function replyAppssVerifyCode(ctx: Context, argument?: string): Promise<void> {
-  const code = resolveAppssVerifyCode(argument);
+  const arg = argument?.trim();
+  if (arg) {
+    setStoredAppssVerifyCode(arg);
+    await ctx.reply(arg);
+    return;
+  }
+
+  const code = resolveAppssVerifyCode();
   if (!code) {
     await ctx.reply(
-      "Скопируйте код из appss.pro и отправьте:\n/appss_verify ВАШ_КОД\n\nИли задайте APPSS_VERIFY_SECRET на сервере."
+      "Скопируйте код из appss.pro (поле «Ответ») и отправьте:\n/appss_verify ВАШ_КОД"
     );
     return;
   }
+
   await ctx.reply(code);
 }
 

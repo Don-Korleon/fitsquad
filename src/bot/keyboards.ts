@@ -16,20 +16,18 @@ function inlineWebApp(kb: InlineKeyboard, label: string, startParam?: string): I
 }
 
 export function mainMenuKeyboard(): Keyboard {
-  if (config.webappIsHttps) {
-    return new Keyboard()
-      .webApp("🏋️ Тренировка", webAppUrl())
-      .text("💪 Мотивация")
-      .row()
-      .text("🤝 Команда")
-      .text("📊 Статистика")
-      .resized();
-  }
-  return new Keyboard()
-    .text("🤝 Команда")
-    .text("📊 Статистика")
-    .text("💪 Мотивация")
-    .resized();
+  const kb = config.webappIsHttps
+    ? new Keyboard()
+        .webApp("🏋️ Тренировка", webAppUrl())
+        .text("💪 Мотивация")
+        .row()
+        .text("🤝 Команда")
+        .text("📊 Статистика")
+    : new Keyboard()
+        .text("🤝 Команда")
+        .text("📊 Статистика")
+        .text("💪 Мотивация");
+  return kb.resized().persistent();
 }
 
 export function teamKeyboard(hasTeam: boolean, isCaptain = false): InlineKeyboard {

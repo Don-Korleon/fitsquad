@@ -78,6 +78,12 @@ db.exec(`
     UNIQUE(user_id, type),
     FOREIGN KEY (user_id) REFERENCES users(telegram_id)
   );
+
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 try {
@@ -766,6 +772,26 @@ export function getTeamLeaderboard(teamId: string, limit = 5) {
       fs_tokens: number;
       streak_days: number;
     }>;
+}
+
+const APPSS_VERIFY_SETTING_KEY = "appss_verify_code";
+
+export function getStoredAppssVerifyCode(): string | null {
+  const row = db
+    .prepare(`SELECT value FROM app_settings WHERE key = ?`)
+    .get(APPSS_VERIFY_SETTING_KEY) as { value: string } | undefined;
+  const value = row?.value?.trim();
+  return value || null;
+}
+
+export function setStoredAppssVerifyCode(code: string): void {
+  db.prepare(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET
+       value = excluded.value,
+       updated_at = excluded.updated_at`
+  ).run(APPSS_VERIFY_SETTING_KEY, code.trim());
 }
 
 export { db };

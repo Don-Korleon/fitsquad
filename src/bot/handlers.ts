@@ -101,6 +101,20 @@ function buildTeamView(userId: number) {
   };
 }
 
+function menuReply(extra?: Omit<Parameters<Context["reply"]>[1], "reply_markup">) {
+  return { ...extra, reply_markup: mainMenuKeyboard() };
+}
+
+/** Re-attaches the reply keyboard after inline buttons or Mini App without leaving a visible message. */
+async function pokeMainMenu(ctx: Context): Promise<void> {
+  const msg = await ctx.reply("·", menuReply({ disable_notification: true }));
+  try {
+    await ctx.api.deleteMessage(ctx.chat!.id, msg.message_id);
+  } catch {
+    /* keyboard already restored */
+  }
+}
+
 export function registerHandlers(bot: Bot): void {
   bot.command("start", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
@@ -131,14 +145,11 @@ export function registerHandlers(bot: Bot): void {
         return;
       }
     }
-    await ctx.reply(WELCOME_TEXT, {
-      parse_mode: "HTML",
-      reply_markup: mainMenuKeyboard(),
-    });
+    await ctx.reply(WELCOME_TEXT, menuReply({ parse_mode: "HTML" }));
   });
 
   bot.command("help", async (ctx) => {
-    await ctx.reply(helpText(), { parse_mode: "HTML" });
+    await ctx.reply(helpText(), menuReply({ parse_mode: "HTML" }));
   });
 
   bot.command("team", async (ctx) => {
@@ -150,13 +161,14 @@ export function registerHandlers(bot: Bot): void {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
     const result = enableSoloMode(ctx.from!.id);
     if (!result.ok) {
-      await ctx.reply(result.error ?? "Не удалось включить Solo режим");
+      await ctx.reply(result.error ?? "Не удалось включить Solo режим", menuReply());
       return;
     }
     await ctx.reply(
       "🏃 *Solo режим включён*\n\nТренируйся один — /workout\n\nЧтобы вступить в команду — сначала выключи Solo: /team → ❌ Выключить Solo",
       { parse_mode: "Markdown", reply_markup: soloKeyboard() }
     );
+    await pokeMainMenu(ctx);
   });
 
   bot.command("workout", async (ctx) => {
@@ -167,12 +179,12 @@ export function registerHandlers(bot: Bot): void {
   bot.command("motivate", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
     const msg = await getMotivationMessage(ctx.from!.id);
-    await ctx.reply(`🤖 *AI-тренер:*\n\n${msg.text}`, { parse_mode: "Markdown" });
+    await ctx.reply(`🤖 *AI-тренер:*\n\n${msg.text}`, menuReply({ parse_mode: "Markdown" }));
   });
 
   bot.command("stats", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
-    await ctx.reply(statsText(buildStats(ctx.from!.id)), { parse_mode: "Markdown" });
+    await ctx.reply(statsText(buildStats(ctx.from!.id)), menuReply({ parse_mode: "Markdown" }));
   });
 
   bot.hears("🤝 Команда", async (ctx) => {
@@ -182,13 +194,13 @@ export function registerHandlers(bot: Bot): void {
 
   bot.hears("📊 Статистика", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
-    await ctx.reply(statsText(buildStats(ctx.from!.id)), { parse_mode: "Markdown" });
+    await ctx.reply(statsText(buildStats(ctx.from!.id)), menuReply({ parse_mode: "Markdown" }));
   });
 
   bot.hears("💪 Мотивация", async (ctx) => {
     upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
     const msg = await getMotivationMessage(ctx.from!.id);
-    await ctx.reply(`🤖 *AI-тренер:*\n\n${msg.text}`, { parse_mode: "Markdown" });
+    await ctx.reply(`🤖 *AI-тренер:*\n\n${msg.text}`, menuReply({ parse_mode: "Markdown" }));
   });
 
   bot.hears("🏋️ Тренировка", async (ctx) => {
@@ -431,10 +443,10 @@ export function registerHandlers(bot: Bot): void {
 
       await ctx.reply(
         `✅ Фото верифицировано!\n+${fsBonus} FS 💎\n\n_${result.reason}_`,
-        { parse_mode: "Markdown" }
+        menuReply({ parse_mode: "Markdown" })
       );
     } catch {
-      await ctx.reply("Не удалось обработать фото. Попробуйте снова.");
+      await ctx.reply("Не удалось обработать фото. Попробуйте снова.", menuReply());
     }
   });
 }
@@ -464,17 +476,20 @@ async function sendTeamInfo(ctx: Context): Promise<void> {
         "🏃 *Solo режим* — тренируешься один.\n\n/workout — тренировка дня\n\n_Чтобы вступить в команду — сначала выключи Solo_",
         { parse_mode: "Markdown", reply_markup: soloKeyboard() }
       );
+      await pokeMainMenu(ctx);
       return;
     }
     await ctx.reply("Вы ещё не в команде. Solo режим или команда:", {
       reply_markup: teamKeyboard(false),
     });
+    await pokeMainMenu(ctx);
     return;
   }
   await ctx.reply(teamText(view), {
     parse_mode: "Markdown",
     reply_markup: teamKeyboard(true, view.isCaptain),
   });
+  await pokeMainMenu(ctx);
 }
 
 async function sendWorkoutInfo(ctx: Context): Promise<void> {
@@ -484,6 +499,7 @@ async function sendWorkoutInfo(ctx: Context): Promise<void> {
       "Включите 🏃 Solo режим — /solo — или создайте команду — /team",
       { reply_markup: teamKeyboard(false) }
     );
+    await pokeMainMenu(ctx);
     return;
   }
 
@@ -528,6 +544,7 @@ async function sendWorkoutInfo(ctx: Context): Promise<void> {
   } catch {
     await ctx.reply(text, markup);
   }
+  await pokeMainMenu(ctx);
 }
 
 export async function setupBotCommands(bot: Bot): Promise<void> {
