@@ -96,9 +96,19 @@ export interface PhotoVerifyResult {
   reason: string;
 }
 
-const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+export interface PhotoVerifyContext {
+  exerciseName?: string;
+  exerciseSlug?: string;
+}
 
-export async function verifyWorkoutPhoto(photoPath: string, userId?: number): Promise<PhotoVerifyResult> {
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const MIN_VERIFY_CONFIDENCE = 0.65;
+
+export async function verifyWorkoutPhoto(
+  photoPath: string,
+  userId?: number,
+  context?: PhotoVerifyContext
+): Promise<PhotoVerifyResult> {
   if (!fs.existsSync(photoPath)) {
     return { verified: false, confidence: 0, reason: "Файл не найден" };
   }
@@ -113,18 +123,18 @@ export async function verifyWorkoutPhoto(photoPath: string, userId?: number): Pr
     return { verified: false, confidence: 0.2, reason: "Фото слишком маленькое" };
   }
 
-  if (userId !== undefined && canUseAiPhotoVerify(userId)) {
-    return verifyWithOpenAi(photoPath);
+  const useAi =
+    (userId !== undefined && canUseAiPhotoVerify(userId)) ||
+    (config.apiMode === "live" && !!config.openaiApiKey);
+
+  if (useAi) {
+    return verifyWithOpenAi(photoPath, context);
   }
 
-  if (config.apiMode === "live" && config.openaiApiKey) {
-    return verifyWithOpenAi(photoPath);
-  }
-
-  return verifyWithMock(photoPath, stat.size);
+  return verifyWithoutAi(stat.size);
 }
 
-function verifyWithMock(_photoPath: string, sizeBytes: number): PhotoVerifyResult {
+function verifyWithoutAi(sizeBytes: number): PhotoVerifyResult {
   if (sizeBytes < 30_000) {
     return {
       verified: false,
@@ -133,13 +143,55 @@ function verifyWithMock(_photoPath: string, sizeBytes: number): PhotoVerifyResul
     };
   }
   return {
-    verified: true,
-    confidence: 0.88,
-    reason: "Фото тренировки верифицировано ✅",
+    verified: false,
+    confidence: 0,
+    reason: "AI-проверка недоступна. Добавьте OPENAI_API_KEY или включите API_MODE=live.",
   };
 }
 
-async function verifyWithOpenAi(photoPath: string): Promise<PhotoVerifyResult> {
+function buildVerifyPrompt(context?: PhotoVerifyContext): string {
+  const exerciseLine = context?.exerciseName
+    ? `Сегодняшнее упражнение пользователя: «${context.exerciseName}».`
+    : "Упражнение дня не указано.";
+
+  return `Ты строгий модератор фитнес-приложения FitSquad. Определи, доказывает ли фото реальную физическую тренировку.
+
+${exerciseLine}
+
+ПРИНЯТЬ (verified=true) ТОЛЬКО если на фото явно видно:
+- человек выполняет упражнение / силовую или кардио-нагрузку, ИЛИ
+- очевидный контекст тренировки: спортзал, коврик, гантели, турник, дорожка, пот и усталость после нагрузки
+
+ОТКЛОНИТЬ (verified=false), если это:
+- еда, напитки, природа, животные, транспорт, интерьер без спорта
+- селфи/портрет без признаков тренировки
+- мемы, скриншоты, переписка, текст, QR-коды
+- случайный предмет без человека и без спортивного контекста
+
+Будь строгим: при сомнении ставь verified=false.
+Ответь ТОЛЬКО JSON: {"verified":boolean,"confidence":0.0-1.0,"reason":"кратко на русском, что видишь"}`;
+}
+
+function normalizeVerifyResult(raw: Partial<PhotoVerifyResult>): PhotoVerifyResult {
+  const confidence = typeof raw.confidence === "number" ? raw.confidence : 0;
+  const reason = raw.reason?.trim() || "На фото не видно тренировки";
+  const verified = raw.verified === true && confidence >= MIN_VERIFY_CONFIDENCE;
+
+  if (raw.verified === true && !verified) {
+    return {
+      verified: false,
+      confidence,
+      reason: `Низкая уверенность (${Math.round(confidence * 100)}%): ${reason}`,
+    };
+  }
+
+  return { verified, confidence, reason };
+}
+
+async function verifyWithOpenAi(
+  photoPath: string,
+  context?: PhotoVerifyContext
+): Promise<PhotoVerifyResult> {
   const buffer = fs.readFileSync(photoPath);
   const base64 = buffer.toString("base64");
   const mime = photoPath.endsWith(".png") ? "image/png" : "image/jpeg";
@@ -153,14 +205,12 @@ async function verifyWithOpenAi(photoPath: string): Promise<PhotoVerifyResult> {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
         messages: [
           {
             role: "user",
             content: [
-              {
-                type: "text",
-                text: 'Это фото с тренировки/спортивной активности? Ответь JSON: {"verified":true/false,"confidence":0-1,"reason":"кратко на русском"}',
-              },
+              { type: "text", text: buildVerifyPrompt(context) },
               {
                 type: "image_url",
                 image_url: { url: `data:${mime};base64,${base64}` },
@@ -168,26 +218,31 @@ async function verifyWithOpenAi(photoPath: string): Promise<PhotoVerifyResult> {
             ],
           },
         ],
-        max_tokens: 150,
+        max_tokens: 200,
       }),
     });
 
     if (!res.ok) {
-      return { verified: true, confidence: 0.6, reason: "Фото тренировки принято ✅" };
+      console.warn("[photo-verify] OpenAI error:", res.status, await res.text());
+      return {
+        verified: false,
+        confidence: 0,
+        reason: "Сервис проверки временно недоступен. Попробуйте позже.",
+      };
     }
 
     const data = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
     const content = data.choices?.[0]?.message?.content ?? "";
-    const match = content.match(/\{[\s\S]*\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]) as PhotoVerifyResult;
-      return parsed;
-    }
-  } catch {
-    /* fallback */
+    const parsed = JSON.parse(content) as Partial<PhotoVerifyResult>;
+    return normalizeVerifyResult(parsed);
+  } catch (err) {
+    console.warn("[photo-verify] failed:", err);
+    return {
+      verified: false,
+      confidence: 0,
+      reason: "Не удалось проверить фото. Попробуйте другое или позже.",
+    };
   }
-
-  return { verified: true, confidence: 0.6, reason: "Фото тренировки принято ✅" };
 }

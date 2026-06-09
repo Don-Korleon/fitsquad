@@ -418,23 +418,29 @@ export function registerHandlers(bot: Bot): void {
 
     const log = getUserWorkoutLog(workout.id, ctx.from!.id);
     if (!log?.completed) {
-      await ctx.reply("Сначала завершите тренировку в Mini App или через /workout.");
+      await ctx.reply("Сначала завершите тренировку в Mini App или через /workout.", menuReply());
       return;
     }
     if (log.photo_verified) {
-      await ctx.reply("Фото уже верифицировано ✅");
+      await ctx.reply("Фото уже верифицировано ✅", menuReply());
       return;
     }
 
+    const view = getUserWorkoutView(workout.id, ctx.from!.id);
+    const exercise = view ? getExercise(view.exerciseSlug) : null;
+
     const photos = ctx.message.photo;
     const largest = photos[photos.length - 1]!;
-    await ctx.reply("📸 Проверяю фото...");
+    await ctx.reply("📸 Проверяю фото...", menuReply());
 
     try {
       const localPath = await downloadPhoto(bot, largest.file_id);
-      const result = await verifyWorkoutPhoto(localPath, ctx.from!.id);
+      const result = await verifyWorkoutPhoto(localPath, ctx.from!.id, {
+        exerciseName: exercise?.name,
+        exerciseSlug: view?.exerciseSlug,
+      });
       if (!result.verified) {
-        await ctx.reply(`❌ ${result.reason}. Попробуйте другое фото.`);
+        await ctx.reply(`❌ ${result.reason}. Попробуйте другое фото.`, menuReply());
         return;
       }
 

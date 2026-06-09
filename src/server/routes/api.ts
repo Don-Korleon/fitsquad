@@ -389,7 +389,10 @@ apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) =
   const finalPath = path.join(config.uploadsDir, `${req.file.filename}${ext}`);
   fs.renameSync(req.file.path, finalPath);
 
-  const result = await verifyWorkoutPhoto(finalPath, user.id);
+  const result = await verifyWorkoutPhoto(finalPath, user.id, {
+    exerciseName: view ? getExercise(view.exerciseSlug)?.name : undefined,
+    exerciseSlug: view?.exerciseSlug,
+  });
   if (!result.verified) {
     fs.unlinkSync(finalPath);
     res.status(400).json({ error: result.reason, confidence: result.confidence });
