@@ -9,6 +9,7 @@ import {
   setupAppssVerifyCommand,
 } from "./appssVerify.js";
 import { registerPremiumHandlers, setPremiumBot } from "./premium.js";
+import { registerPromoHandlers } from "./promo.js";
 
 export function createBot(): Bot {
   if (!config.botToken) {
@@ -24,6 +25,7 @@ export function createBot(): Bot {
   registerAppssVerifyHandlers(bot);
   registerHandlers(bot);
   registerPremiumHandlers(bot);
+  registerPromoHandlers(bot);
   setPremiumBot(bot);
   return bot;
 }

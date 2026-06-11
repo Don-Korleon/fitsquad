@@ -707,4 +707,56 @@ export async function setStoredAppssVerifyCode(code: string): Promise<void> {
   );
 }
 
+export async function redeemPromoCode(
+  userId: number,
+  rawCode: string
+): Promise<{ ok: true; until: string; days: number } | { ok: false; error: string }> {
+  const code = rawCode.trim().toUpperCase();
+  if (!code) {
+    return { ok: false, error: "Введите код: /promo ВАШ_КОД" };
+  }
+
+  const promo = (await dbGet(
+    `SELECT code, days, max_uses, uses_count, expires_at FROM promo_codes WHERE code = ?`,
+    [code]
+  )) as
+    | {
+        code: string;
+        days: number;
+        max_uses: number;
+        uses_count: number;
+        expires_at: string | null;
+      }
+    | undefined;
+
+  if (!promo) {
+    return { ok: false, error: "Промокод не найден или недействителен" };
+  }
+  if (promo.expires_at && new Date(promo.expires_at) < new Date()) {
+    return { ok: false, error: "Срок действия промокода истёк" };
+  }
+  if (promo.uses_count >= promo.max_uses) {
+    return { ok: false, error: "Промокод уже использован" };
+  }
+
+  const already = await dbGet(`SELECT 1 FROM promo_redemptions WHERE code = ? AND user_id = ?`, [
+    code,
+    userId,
+  ]);
+  if (already) {
+    return { ok: false, error: "Вы уже активировали этот промокод" };
+  }
+
+  await upsertUser(userId);
+  const granted = await grantPremium(userId, promo.days);
+  await dbRun(`INSERT INTO promo_redemptions (id, code, user_id) VALUES (?, ?, ?)`, [
+    uuidv4(),
+    code,
+    userId,
+  ]);
+  await dbRun(`UPDATE promo_codes SET uses_count = uses_count + 1 WHERE code = ?`, [code]);
+
+  return { ok: true, until: granted.until, days: promo.days };
+}
+
 export { dbAll, dbExec, dbGet, dbRun, initDb };

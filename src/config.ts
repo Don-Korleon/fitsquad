@@ -63,6 +63,8 @@ export const config = {
   premiumPriceStars: Number(process.env.PREMIUM_PRICE_STARS ?? 99),
   premiumDays: Number(process.env.PREMIUM_DAYS ?? 30),
   premiumFsMultiplier: Number(process.env.PREMIUM_FS_MULTIPLIER ?? 1.5),
+  promoYearCode: (process.env.PROMO_YEAR_CODE ?? "FITSQUAD1YEAR").trim().toUpperCase(),
+  promoYearDays: Number(process.env.PROMO_YEAR_DAYS ?? 365),
   appssVerifySecret: process.env.APPSS_VERIFY_SECRET ?? "",
   tursoDatabaseUrl: (process.env.TURSO_DATABASE_URL ?? "").trim(),
   tursoAuthToken: (process.env.TURSO_AUTH_TOKEN ?? "").trim(),

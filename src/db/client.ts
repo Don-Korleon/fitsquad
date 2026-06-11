@@ -107,6 +107,25 @@ const SCHEMA = `
     value TEXT NOT NULL,
     updated_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS promo_codes (
+    code TEXT PRIMARY KEY,
+    days INTEGER NOT NULL,
+    max_uses INTEGER NOT NULL DEFAULT 1,
+    uses_count INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
+    note TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS promo_redemptions (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    redeemed_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(code, user_id),
+    FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+  );
 `;
 
 async function tryAlter(sql: string): Promise<void> {
@@ -129,5 +148,16 @@ export async function initDb(): Promise<void> {
   await tryAlter(`ALTER TABLE workout_logs ADD COLUMN duration_sec INTEGER`);
   await tryAlter(`ALTER TABLE users ADD COLUMN solo_mode INTEGER DEFAULT 0`);
   await tryAlter(`ALTER TABLE users ADD COLUMN premium_until TEXT`);
+  await seedDefaultPromoCodes();
   initialized = true;
+}
+
+async function seedDefaultPromoCodes(): Promise<void> {
+  const code = config.promoYearCode.trim().toUpperCase();
+  if (!code) return;
+  await dbRun(
+    `INSERT OR IGNORE INTO promo_codes (code, days, max_uses, uses_count, note)
+     VALUES (?, ?, 1, 0, ?)`,
+    [code, config.promoYearDays, "Premium 1 year"]
+  );
 }

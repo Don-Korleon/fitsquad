@@ -564,6 +564,7 @@ export async function setupBotCommands(bot: Bot): Promise<void> {
     { command: "motivate", description: "Мотивация AI" },
     { command: "stats", description: "Статистика и FS" },
     { command: "premium", description: "Premium подписка ⭐" },
+    { command: "promo", description: "Промокод Premium" },
     { command: "appss_verify", description: "Верификация appss.pro" },
     { command: "help", description: "Справка" },
   ]);
