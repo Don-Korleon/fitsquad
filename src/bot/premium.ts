@@ -1,4 +1,5 @@
 import type { Bot } from "grammy";
+import { InlineKeyboard } from "grammy";
 import { config } from "../config.js";
 import { grantPremium } from "../db/index.js";
 import { getPremiumOffer, PREMIUM_FEATURES } from "../services/premium.js";
@@ -49,11 +50,19 @@ export async function sendPremiumInvoice(bot: Bot, chatId: number): Promise<void
 
 export function registerPremiumHandlers(bot: Bot): void {
   bot.command("premium", async (ctx) => {
-    await ctx.reply(premiumDescription(), { parse_mode: "Markdown", reply_markup: mainMenuKeyboard() });
-    await sendPremiumInvoice(bot, ctx.chat!.id);
+    const kb = premiumPaymentKeyboard();
+    await ctx.reply(premiumDescription(), { parse_mode: "Markdown", reply_markup: kb });
+    if (!config.tributeSubscriptionLink && !config.tributeProductLink) {
+      await sendPremiumInvoice(bot, ctx.chat!.id);
+    }
   });
 
   bot.callbackQuery(/^premium:buy$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await sendPremiumInvoice(bot, ctx.chat!.id);
+  });
+
+  bot.callbackQuery(/^premium:stars$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     await sendPremiumInvoice(bot, ctx.chat!.id);
   });
@@ -86,3 +95,13 @@ export function registerPremiumHandlers(bot: Bot): void {
 }
 
 export { getPremiumOffer };
+
+function premiumPaymentKeyboard(): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  const tributeLink = config.tributeSubscriptionLink || config.tributeProductLink;
+  if (tributeLink) {
+    kb.url("⭐ Premium через Tribute", tributeLink).row();
+  }
+  kb.text(`⭐ Telegram Stars (${config.premiumPriceStars})`, "premium:stars");
+  return kb;
+}

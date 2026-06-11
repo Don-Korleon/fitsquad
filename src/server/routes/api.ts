@@ -94,6 +94,8 @@ apiRouter.get("/health", async (_req, res) => {
     botCommands,
     webhookPath: `/webhook/${config.webhookSecret.slice(0, 4)}…`,
     publicUrl: config.publicUrl,
+    tributeConfigured: !!config.tributeApiKey,
+    tributeWebhookUrl: config.tributeApiKey ? `${config.publicUrl}/api/tribute/webhook` : null,
   });
 });
 

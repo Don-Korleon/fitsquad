@@ -126,6 +126,14 @@ const SCHEMA = `
     UNIQUE(code, user_id),
     FOREIGN KEY (user_id) REFERENCES users(telegram_id)
   );
+
+  CREATE TABLE IF NOT EXISTS tribute_events (
+    id TEXT PRIMARY KEY,
+    event_name TEXT NOT NULL,
+    telegram_user_id INTEGER,
+    payload_json TEXT,
+    processed_at TEXT DEFAULT (datetime('now'))
+  );
 `;
 
 async function tryAlter(sql: string): Promise<void> {
@@ -148,16 +156,5 @@ export async function initDb(): Promise<void> {
   await tryAlter(`ALTER TABLE workout_logs ADD COLUMN duration_sec INTEGER`);
   await tryAlter(`ALTER TABLE users ADD COLUMN solo_mode INTEGER DEFAULT 0`);
   await tryAlter(`ALTER TABLE users ADD COLUMN premium_until TEXT`);
-  await seedDefaultPromoCodes();
   initialized = true;
-}
-
-async function seedDefaultPromoCodes(): Promise<void> {
-  const code = config.promoYearCode.trim().toUpperCase();
-  if (!code) return;
-  await dbRun(
-    `INSERT OR IGNORE INTO promo_codes (code, days, max_uses, uses_count, note)
-     VALUES (?, ?, 1, 0, ?)`,
-    [code, config.promoYearDays, "Premium 1 year"]
-  );
 }

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { apiRouter } from "./routes/api.js";
+import { tributeWebhookHandler } from "./routes/tribute.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -11,6 +12,13 @@ export function createServer(options?: {
   webhookHandler?: RequestHandler;
 }): express.Application {
   const app = express();
+
+  app.post(
+    "/api/tribute/webhook",
+    express.raw({ type: "application/json", limit: "1mb" }),
+    tributeWebhookHandler
+  );
+
   app.use(express.json({ limit: "2mb" }));
 
   if (options?.webhookPath && options?.webhookHandler) {
