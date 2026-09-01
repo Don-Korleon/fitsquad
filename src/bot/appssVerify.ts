@@ -4,6 +4,11 @@ import { getStoredAppssVerifyCode, setStoredAppssVerifyCode } from "../db/index.
 
 const APPSS_COMMAND = "appss_verify";
 
+/** Только владелец бота может задавать/просматривать код верификации appss.pro. */
+export function isAppssAdmin(userId: number | undefined): boolean {
+  return userId !== undefined && config.adminTelegramIds.has(userId);
+}
+
 /** Код для ответа: аргумент → БД → APPSS_VERIFY_SECRET. */
 export async function resolveAppssVerifyCode(argument?: string): Promise<string | null> {
   const arg = argument?.trim() ?? "";
@@ -88,6 +93,10 @@ export async function fetchBotCommandNames(): Promise<string[]> {
 
 export function registerAppssVerifyHandlers(bot: Bot): void {
   const handle = async (ctx: Context, argument?: string) => {
+    if (!isAppssAdmin(ctx.from?.id)) {
+      await ctx.reply("🔒 Команда доступна только администратору бота.");
+      return;
+    }
     await replyAppssVerifyCode(ctx, argument);
   };
 

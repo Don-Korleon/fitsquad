@@ -48,8 +48,22 @@ export async function getUser(telegramId: number) {
         total_workouts: number;
         solo_mode: number;
         premium_until: string | null;
+        pending_action: string | null;
       }
     | undefined;
+}
+
+/**
+ * Persists lightweight per-user "what am I waiting for next" state (e.g. invite code entry).
+ * Backed by the DB rather than in-memory Map — the bot runs as stateless serverless functions
+ * on Vercel, so different webhook calls for the same user can land on different instances.
+ */
+export async function setPendingAction(userId: number, action: string | null): Promise<void> {
+  await dbRun(`UPDATE users SET pending_action = ? WHERE telegram_id = ?`, [action, userId]);
+}
+
+export async function getPendingAction(userId: number): Promise<string | null> {
+  return (await getUser(userId))?.pending_action ?? null;
 }
 
 export async function isSoloModeEnabled(userId: number): Promise<boolean> {

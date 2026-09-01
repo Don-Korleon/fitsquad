@@ -156,5 +156,6 @@ export async function initDb(): Promise<void> {
   await tryAlter(`ALTER TABLE workout_logs ADD COLUMN duration_sec INTEGER`);
   await tryAlter(`ALTER TABLE users ADD COLUMN solo_mode INTEGER DEFAULT 0`);
   await tryAlter(`ALTER TABLE users ADD COLUMN premium_until TEXT`);
+  await tryAlter(`ALTER TABLE users ADD COLUMN pending_action TEXT`);
   initialized = true;
 }

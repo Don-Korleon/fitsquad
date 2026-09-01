@@ -21,8 +21,10 @@ import {
   createTeam,
   disableSoloMode,
   enableSoloMode,
+  getPendingAction,
   leaveTeam,
   disbandTeam,
+  setPendingAction,
   upsertUser,
   verifyWorkoutPhoto as dbVerifyPhoto,
 } from "../db/index.js";
@@ -45,11 +47,7 @@ import {
 } from "./keyboards.js";
 import { helpText, statsText, teamText, WELCOME_TEXT, workoutCompleteText } from "./messages.js";
 import { premiumDescription, sendPremiumInvoice } from "./premium.js";
-import { parseAppssStartParam, replyAppssVerifyCode } from "./appssVerify.js";
-
-type SessionState = "awaiting_invite_code" | "awaiting_photo";
-
-const userState = new Map<number, SessionState>();
+import { isAppssAdmin, parseAppssStartParam, replyAppssVerifyCode } from "./appssVerify.js";
 
 async function downloadPhoto(bot: Bot, fileId: string): Promise<string> {
   const file = await withTimeout(bot.api.getFile(fileId), 30_000, "getFile");
@@ -125,7 +123,7 @@ export function registerHandlers(bot: Bot): void {
       return;
     }
     const appssCode = payload ? parseAppssStartParam(payload) : null;
-    if (payload === "appss_verify" || appssCode !== null) {
+    if ((payload === "appss_verify" || appssCode !== null) && isAppssAdmin(ctx.from?.id)) {
       await replyAppssVerifyCode(ctx, appssCode ?? undefined);
       return;
     }
@@ -273,7 +271,7 @@ export function registerHandlers(bot: Bot): void {
       });
       return;
     }
-    userState.set(ctx.from!.id, "awaiting_invite_code");
+    await setPendingAction(ctx.from!.id, "awaiting_invite_code");
     await ctx.reply("Введите 6-значный код приглашения:");
   });
 
@@ -389,9 +387,9 @@ export function registerHandlers(bot: Bot): void {
   });
 
   bot.on("message:text").filter(
-    (ctx) => userState.get(ctx.from!.id) === "awaiting_invite_code",
+    async (ctx) => (await getPendingAction(ctx.from!.id)) === "awaiting_invite_code",
     async (ctx) => {
-      userState.delete(ctx.from!.id);
+      await setPendingAction(ctx.from!.id, null);
       const code = ctx.message.text.trim().toUpperCase();
       const joined = await joinTeamByCode(ctx.from!.id, code);
       if (joined.ok) {

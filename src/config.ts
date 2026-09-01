@@ -71,6 +71,12 @@ export const config = {
   tributeSubscriptionId: Number(process.env.TRIBUTE_SUBSCRIPTION_ID ?? 0) || null,
   tributeProductId: Number(process.env.TRIBUTE_PRODUCT_ID ?? 0) || null,
   appssVerifySecret: process.env.APPSS_VERIFY_SECRET ?? "",
+  adminTelegramIds: new Set(
+    (process.env.ADMIN_TELEGRAM_IDS ?? "")
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  ),
   tursoDatabaseUrl: (process.env.TURSO_DATABASE_URL ?? "").trim(),
   tursoAuthToken: (process.env.TURSO_AUTH_TOKEN ?? "").trim(),
   dbIsRemote: !!(process.env.TURSO_DATABASE_URL ?? "").trim(),
