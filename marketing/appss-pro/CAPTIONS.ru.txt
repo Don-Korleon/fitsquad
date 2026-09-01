@@ -1,0 +1,16 @@
+=== FitSquad — подписи для appss.pro ===
+
+ИКОНКА: fitsquad-icon-512.png
+БАННЕР: fitsquad-banner-1200x630.png
+
+СКРИНШОТ 1 (fitsquad-screenshot-01-home.png):
+Главная — FS, streak и тренировка дня
+
+СКРИНШОТ 2 (fitsquad-screenshot-02-workout.png):
+Тренировка с подходами и советами AI
+
+СКРИНШОТ 3 (fitsquad-screenshot-03-team.png):
+Команда до 5 человек и лидерборд
+
+СКРИНШОТ 4 (fitsquad-screenshot-04-premium.png):
+Premium: AI Pro и FS Boost за Stars

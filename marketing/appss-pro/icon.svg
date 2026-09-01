@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" fill="#0f1419"/>
+  <circle cx="256" cy="256" r="180" fill="#161b22" stroke="#2ea043" stroke-width="8"/>
+  <rect x="176" y="228" width="160" height="20" rx="10" fill="#2ea043"/>
+  <rect x="196" y="208" width="20" height="60" rx="8" fill="#2ea043"/>
+  <rect x="296" y="208" width="20" height="60" rx="8" fill="#2ea043"/>
+  <circle cx="186" cy="190" r="22" fill="#d4a72c"/>
+  <circle cx="256" cy="170" r="22" fill="#d4a72c"/>
+  <circle cx="326" cy="190" r="22" fill="#d4a72c"/>
+  <text x="256" y="340" text-anchor="middle" fill="#f0f2f5" font-family="system-ui,sans-serif" font-size="42" font-weight="700">FS</text>
+</svg>
