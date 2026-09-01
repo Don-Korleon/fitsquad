@@ -44,6 +44,7 @@ import { savePhotoBuffer } from "../../services/storage.js";
 import { resolveAppssVerifyCode, fetchBotCommandNames, APPSS_COMMAND } from "../../bot/appssVerify.js";
 import { createPremiumInvoiceLink } from "../../bot/premium.js";
 import { validateInitData } from "../../utils/telegramAuth.js";
+import { runDailyMotivation } from "../../jobs/daily-motivation.js";
 import { asyncHandler } from "../asyncHandler.js";
 
 export const apiRouter = Router();
@@ -542,6 +543,18 @@ apiRouter.post(
       return;
     }
     res.json({ invoiceLink });
+  })
+);
+
+apiRouter.get(
+  "/cron/daily-motivation",
+  asyncHandler(async (req, res) => {
+    if (!config.cronSecret || req.headers.authorization !== `Bearer ${config.cronSecret}`) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const result = await runDailyMotivation();
+    res.json({ ok: true, ...result });
   })
 );
 

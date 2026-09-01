@@ -1,4 +1,5 @@
 import { Bot } from "grammy";
+import { pathToFileURL } from "node:url";
 import { config } from "../config.js";
 import {
   ensureTodayWorkout,
@@ -10,10 +11,14 @@ import { getExercise } from "../services/exercises.js";
 import { getTeamDailyMessage } from "../services/aiTrainer.js";
 import { mainMenuKeyboard } from "../bot/keyboards.js";
 
-async function main(): Promise<void> {
+/**
+ * Sends the daily team motivation message. Exported so it can run either from this file's own
+ * CLI entrypoint (VPS/Docker crontab, per README) or from the /api/cron/daily-motivation route
+ * (Vercel Cron — a serverless deployment has no OS-level crontab to run this script directly).
+ */
+export async function runDailyMotivation(): Promise<{ teamsNotified: number }> {
   if (!config.botToken) {
-    console.error("BOT_TOKEN required");
-    process.exit(1);
+    throw new Error("BOT_TOKEN required");
   }
 
   const bot = new Bot(config.botToken);
@@ -49,10 +54,19 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`[motivation] sent to ${teams.length} teams`);
+  return { teamsNotified: teams.length };
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const isMain =
+  !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  runDailyMotivation()
+    .then(({ teamsNotified }) => {
+      console.log(`[motivation] sent to ${teamsNotified} teams`);
+    })
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}

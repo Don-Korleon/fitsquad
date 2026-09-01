@@ -81,6 +81,7 @@ export const config = {
   tursoAuthToken: (process.env.TURSO_AUTH_TOKEN ?? "").trim(),
   dbIsRemote: !!(process.env.TURSO_DATABASE_URL ?? "").trim(),
   blobToken: (process.env.BLOB_READ_WRITE_TOKEN ?? "").trim(),
+  cronSecret: (process.env.CRON_SECRET ?? "").trim(),
   dataDir: dataRoot,
   uploadsDir: uploadsRoot,
   dbPath: path.join(dataRoot, "fitsquad.db"),
