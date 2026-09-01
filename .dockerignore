@@ -1,0 +1,11 @@
+node_modules
+webapp/node_modules
+dist
+webapp/dist
+data
+uploads
+.env
+.env.*
+!.env.example
+.git
+*.log

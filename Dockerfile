@@ -10,7 +10,7 @@ COPY webapp/package.json webapp/package-lock.json* ./webapp/
 RUN npm ci 2>/dev/null || npm install
 RUN cd webapp && (npm ci 2>/dev/null || npm install)
 
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 COPY webapp ./webapp
 
