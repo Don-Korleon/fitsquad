@@ -70,14 +70,32 @@ function workoutIdParam(raw: string | string[]): string {
   return Array.isArray(raw) ? raw[0]! : raw;
 }
 
+/**
+ * Resolves a workout for read/write actions, but only within the caller's own team/solo
+ * context — a bare getTeamWorkout(workoutId) would let anyone who knows (or once knew, e.g.
+ * before leaving a team) a workout's UUID act on it regardless of membership. Falls back to
+ * today's own workout if the given id is missing or belongs to someone else's team, matching
+ * the existing "stale id" resilience the Mini App already relied on.
+ */
 async function resolveWorkoutForUser(userId: number, workoutId: string) {
-  const direct = await getTeamWorkout(workoutId);
-  if (direct) return direct;
-
   const training = await getTrainingContext(userId);
   if (!training) return undefined;
 
+  const direct = await getTeamWorkout(workoutId);
+  if (direct && direct.team_id === training.teamId) return direct;
+
   return (await getTodayWorkoutForTeam(training.teamId)) ?? undefined;
+}
+
+/** Same ownership guard as resolveWorkoutForUser, but for plain lookups: no team means 404, not a fallback. */
+async function requireOwnWorkout(userId: number, workoutId: string) {
+  const workout = await getTeamWorkout(workoutId);
+  if (!workout) return undefined;
+
+  const training = await getTrainingContext(userId);
+  if (!training || workout.team_id !== training.teamId) return undefined;
+
+  return workout;
 }
 
 apiRouter.get(
@@ -314,7 +332,7 @@ apiRouter.get(
       res.status(401).json({ error: "Invalid init data" });
       return;
     }
-    const workout = await getTeamWorkout(workoutIdParam(req.params.id));
+    const workout = await requireOwnWorkout(user.id, workoutIdParam(req.params.id));
     if (!workout) {
       res.status(404).json({ error: "Not found" });
       return;
@@ -474,7 +492,7 @@ apiRouter.get(
       res.status(401).json({ error: "Invalid init data" });
       return;
     }
-    const workout = await getTeamWorkout(workoutIdParam(req.params.id));
+    const workout = await requireOwnWorkout(user.id, workoutIdParam(req.params.id));
     if (!workout) {
       res.status(404).json({ error: "Not found" });
       return;
