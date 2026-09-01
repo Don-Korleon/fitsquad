@@ -560,10 +560,8 @@ apiRouter.get(
 
 apiRouter.get(
   "/appss-verify",
-  asyncHandler(async (req, res) => {
-    const code = await resolveAppssVerifyCode(
-      typeof req.query.code === "string" ? req.query.code : undefined
-    );
+  asyncHandler(async (_req, res) => {
+    const code = await resolveAppssVerifyCode();
     if (!code) {
       res.status(400).json({ error: "Missing verification code" });
       return;

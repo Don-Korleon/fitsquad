@@ -9,11 +9,8 @@ export function isAppssAdmin(userId: number | undefined): boolean {
   return userId !== undefined && config.adminTelegramIds.has(userId);
 }
 
-/** Код для ответа: аргумент → БД → APPSS_VERIFY_SECRET. */
-export async function resolveAppssVerifyCode(argument?: string): Promise<string | null> {
-  const arg = argument?.trim() ?? "";
-  if (arg) return arg;
-
+/** Код для ответа: БД → APPSS_VERIFY_SECRET. */
+export async function resolveAppssVerifyCode(): Promise<string | null> {
   const stored = await getStoredAppssVerifyCode();
   if (stored) return stored;
 

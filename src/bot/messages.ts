@@ -110,6 +110,6 @@ export function workoutCompleteText(reward: {
   return text;
 }
 
-function escapeMd(text: string): string {
+export function escapeMd(text: string): string {
   return text.replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
 }

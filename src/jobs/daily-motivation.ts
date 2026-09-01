@@ -10,6 +10,11 @@ import {
 import { getExercise } from "../services/exercises.js";
 import { getTeamDailyMessage } from "../services/aiTrainer.js";
 import { mainMenuKeyboard } from "../bot/keyboards.js";
+import { escapeMd } from "../bot/messages.js";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Sends the daily team motivation message. Exported so it can run either from this file's own
@@ -40,7 +45,7 @@ export async function runDailyMotivation(): Promise<{ teamsNotified: number }> {
       members.length
     );
 
-    const text = `🌅 *Утренняя мотивация — ${team.name}*\n\n${exercise?.emoji ?? "🏋️"} Сегодня: *${exercise?.name ?? "тренировка"}*\n👥 ${completed}/${members.length} выполнили\n\n${message}`;
+    const text = `🌅 *Утренняя мотивация — ${escapeMd(team.name)}*\n\n${exercise?.emoji ?? "🏋️"} Сегодня: *${exercise?.name ?? "тренировка"}*\n👥 ${completed}/${members.length} выполнили\n\n${message}`;
 
     for (const member of members) {
       try {
@@ -51,6 +56,8 @@ export async function runDailyMotivation(): Promise<{ teamsNotified: number }> {
       } catch {
         /* user blocked bot */
       }
+      // Stays under Telegram's ~30 msg/sec global rate limit as the user base grows.
+      await sleep(40);
     }
   }
 
