@@ -1,7 +1,8 @@
-import express, { type RequestHandler } from "express";
+import express, { type ErrorRequestHandler, type RequestHandler } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
+import { asyncHandler } from "./asyncHandler.js";
 import { apiRouter } from "./routes/api.js";
 import { tributeWebhookHandler } from "./routes/tribute.js";
 
@@ -16,7 +17,7 @@ export function createServer(options?: {
   app.post(
     "/api/tribute/webhook",
     express.raw({ type: "application/json", limit: "1mb" }),
-    tributeWebhookHandler
+    asyncHandler(tributeWebhookHandler)
   );
 
   app.use(express.json({ limit: "2mb" }));
@@ -45,6 +46,16 @@ export function createServer(options?: {
       health: "/api/health",
     });
   });
+
+  const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    console.error("[server] unhandled error:", err);
+    res.status(500).json({ error: "Внутренняя ошибка сервера. Попробуйте позже." });
+  };
+  app.use(errorHandler);
 
   return app;
 }
