@@ -22,6 +22,7 @@ import {
   getTrainingContext,
   hasUserCompletedExerciseToday,
   hasUserPhotoVerifiedExerciseToday,
+  hitRateLimit,
   isSoloModeEnabled,
   isPremium,
   isWorkoutFullyCompleted,
@@ -401,9 +402,15 @@ apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) =
     return;
   }
 
+  const limit = await hitRateLimit(user.id, "photo_verify", 3600, 10);
+  if (!limit.allowed) {
+    res.status(429).json({ error: "Слишком много попыток верификации. Попробуйте через час." });
+    return;
+  }
+
   const ext = path.extname(req.file.originalname) || ".jpg";
 
-  const result = await verifyWorkoutPhoto(req.file.buffer, ext, user.id, {
+  const result = await verifyWorkoutPhoto(req.file.buffer, user.id, {
     exerciseName: view ? getExercise(view.exerciseSlug)?.name : undefined,
     exerciseSlug: view?.exerciseSlug,
   });
@@ -432,6 +439,11 @@ apiRouter.get("/workout/:id/coach", async (req, res) => {
   const workout = await getTeamWorkout(workoutIdParam(req.params.id));
   if (!workout) {
     res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const limit = await hitRateLimit(user.id, "coach_tip", 3600, 20);
+  if (!limit.allowed) {
+    res.status(429).json({ error: "Слишком много запросов к AI-тренеру. Попробуйте через час." });
     return;
   }
   const view = await getUserWorkoutView(workout.id, user.id);

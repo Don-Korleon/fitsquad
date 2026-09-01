@@ -21,6 +21,7 @@ import {
   disableSoloMode,
   enableSoloMode,
   getPendingAction,
+  hitRateLimit,
   leaveTeam,
   disbandTeam,
   setPendingAction,
@@ -95,6 +96,16 @@ async function buildTeamView(userId: number) {
     members,
     isCaptain: team.captain_id === userId,
   };
+}
+
+async function sendMotivation(ctx: Context): Promise<void> {
+  const limit = await hitRateLimit(ctx.from!.id, "motivate", 3600, 10);
+  if (!limit.allowed) {
+    await ctx.reply("⏳ Слишком много запросов к AI-тренеру. Попробуйте через час.", menuReply());
+    return;
+  }
+  const msg = await getMotivationMessage(ctx.from!.id);
+  await ctx.reply(`🤖 *AI-тренер:*\n\n${msg.text}`, menuReply({ parse_mode: "Markdown" }));
 }
 
 function menuReply(extra?: Omit<Parameters<Context["reply"]>[1], "reply_markup">) {
@@ -174,8 +185,7 @@ export function registerHandlers(bot: Bot): void {
 
   bot.command("motivate", async (ctx) => {
     await upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
-    const msg = await getMotivationMessage(ctx.from!.id);
-    await ctx.reply(`🤖 *AI-тренер:*\n\n${msg.text}`, menuReply({ parse_mode: "Markdown" }));
+    await sendMotivation(ctx);
   });
 
   bot.command("stats", async (ctx) => {
@@ -195,8 +205,7 @@ export function registerHandlers(bot: Bot): void {
 
   bot.hears("💪 Мотивация", async (ctx) => {
     await upsertUser(ctx.from!.id, ctx.from?.username, ctx.from?.first_name);
-    const msg = await getMotivationMessage(ctx.from!.id);
-    await ctx.reply(`🤖 *AI-тренер:*\n\n${msg.text}`, menuReply({ parse_mode: "Markdown" }));
+    await sendMotivation(ctx);
   });
 
   bot.hears("🏋️ Тренировка", async (ctx) => {
@@ -373,6 +382,11 @@ export function registerHandlers(bot: Bot): void {
       await ctx.reply("Тренировка не найдена.");
       return;
     }
+    const limit = await hitRateLimit(ctx.from!.id, "coach_tip", 3600, 20);
+    if (!limit.allowed) {
+      await ctx.reply("⏳ Слишком много запросов к AI-тренеру. Попробуйте через час.");
+      return;
+    }
     const tip = await getWorkoutCoachTip(workout.exercise_slug, 1, ctx.from!.id);
     await ctx.reply(`🤖 ${tip.text}`);
   });
@@ -423,6 +437,12 @@ export function registerHandlers(bot: Bot): void {
       return;
     }
 
+    const limit = await hitRateLimit(ctx.from!.id, "photo_verify", 3600, 10);
+    if (!limit.allowed) {
+      await ctx.reply("⏳ Слишком много попыток верификации. Попробуйте через час.", menuReply());
+      return;
+    }
+
     const view = await getUserWorkoutView(workout.id, ctx.from!.id);
     const exercise = view ? getExercise(view.exerciseSlug) : null;
 
@@ -432,7 +452,7 @@ export function registerHandlers(bot: Bot): void {
 
     try {
       const { buffer, ext } = await downloadPhoto(bot, largest.file_id);
-      const result = await verifyWorkoutPhoto(buffer, ext, ctx.from!.id, {
+      const result = await verifyWorkoutPhoto(buffer, ctx.from!.id, {
         exerciseName: exercise?.name,
         exerciseSlug: view?.exerciseSlug,
       });

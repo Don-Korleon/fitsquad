@@ -134,6 +134,14 @@ const SCHEMA = `
     payload_json TEXT,
     processed_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS rate_limit_hits (
+    user_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    window_start INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, action, window_start)
+  );
 `;
 
 async function tryAlter(sql: string): Promise<void> {

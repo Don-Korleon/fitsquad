@@ -99,12 +99,39 @@ export interface PhotoVerifyContext {
   exerciseSlug?: string;
 }
 
-const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const MIN_VERIFY_CONFIDENCE = 0.65;
+
+type ImageFormat = "jpeg" | "png" | "webp";
+
+/**
+ * Sniffs the real file format from its magic bytes instead of trusting the client-supplied
+ * extension/MIME type, which the Mini App's upload request fully controls and can spoof.
+ */
+function detectImageFormat(buffer: Buffer): ImageFormat | null {
+  if (buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "jpeg";
+  }
+  if (
+    buffer.length > 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    return "png";
+  }
+  if (
+    buffer.length > 12 &&
+    buffer.toString("ascii", 0, 4) === "RIFF" &&
+    buffer.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "webp";
+  }
+  return null;
+}
 
 export async function verifyWorkoutPhoto(
   buffer: Buffer,
-  ext: string,
   userId?: number,
   context?: PhotoVerifyContext
 ): Promise<PhotoVerifyResult> {
@@ -112,8 +139,9 @@ export async function verifyWorkoutPhoto(
     return { verified: false, confidence: 0, reason: "Файл не найден" };
   }
 
-  if (!IMAGE_EXTENSIONS.has(ext.toLowerCase())) {
-    return { verified: false, confidence: 0, reason: "Нужно фото (JPG/PNG)" };
+  const format = detectImageFormat(buffer);
+  if (!format) {
+    return { verified: false, confidence: 0, reason: "Файл не похож на настоящее фото (JPG/PNG/WEBP)" };
   }
 
   if (buffer.length < 10_000) {
@@ -125,7 +153,7 @@ export async function verifyWorkoutPhoto(
     (config.apiMode === "live" && !!config.openaiApiKey);
 
   if (useAi) {
-    return verifyWithOpenAi(buffer, ext, context);
+    return verifyWithOpenAi(buffer, format, context);
   }
 
   return verifyWithoutAi(buffer.length);
@@ -187,11 +215,11 @@ function normalizeVerifyResult(raw: Partial<PhotoVerifyResult>): PhotoVerifyResu
 
 async function verifyWithOpenAi(
   buffer: Buffer,
-  ext: string,
+  format: ImageFormat,
   context?: PhotoVerifyContext
 ): Promise<PhotoVerifyResult> {
   const base64 = buffer.toString("base64");
-  const mime = ext.toLowerCase() === ".png" ? "image/png" : "image/jpeg";
+  const mime = `image/${format}`;
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
