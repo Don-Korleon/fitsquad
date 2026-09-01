@@ -101,13 +101,13 @@ export interface PhotoVerifyContext {
 
 const MIN_VERIFY_CONFIDENCE = 0.65;
 
-type ImageFormat = "jpeg" | "png" | "webp";
+export type ImageFormat = "jpeg" | "png" | "webp";
 
 /**
  * Sniffs the real file format from its magic bytes instead of trusting the client-supplied
  * extension/MIME type, which the Mini App's upload request fully controls and can spoof.
  */
-function detectImageFormat(buffer: Buffer): ImageFormat | null {
+export function detectImageFormat(buffer: Buffer): ImageFormat | null {
   if (buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
     return "jpeg";
   }

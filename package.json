@@ -8,10 +8,12 @@
     "dev": "tsx watch src/index.ts",
     "build": "npm run build:server && npm run build:webapp",
     "build:vercel": "npm run build:server && npm run build:webapp && node scripts/copy-webapp.mjs",
-    "build:server": "tsc -p tsconfig.json",
+    "build:server": "tsc -p tsconfig.build.json",
     "build:webapp": "npm run build --prefix webapp",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "motivation:daily": "node dist/jobs/daily-motivation.js",
     "motivation:daily:dev": "tsx src/jobs/daily-motivation.ts"
   },
@@ -32,6 +34,7 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^22.13.10",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.11"
   }
 }
