@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",
+    "@vercel/blob": "^2.8.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "grammy": "^1.35.0",

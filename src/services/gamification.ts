@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import { ACHIEVEMENTS, config } from "../config.js";
 import {
   addFsTokens,
@@ -105,21 +103,20 @@ const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const MIN_VERIFY_CONFIDENCE = 0.65;
 
 export async function verifyWorkoutPhoto(
-  photoPath: string,
+  buffer: Buffer,
+  ext: string,
   userId?: number,
   context?: PhotoVerifyContext
 ): Promise<PhotoVerifyResult> {
-  if (!fs.existsSync(photoPath)) {
+  if (buffer.length === 0) {
     return { verified: false, confidence: 0, reason: "Файл не найден" };
   }
 
-  const ext = path.extname(photoPath).toLowerCase();
-  if (!IMAGE_EXTENSIONS.has(ext)) {
+  if (!IMAGE_EXTENSIONS.has(ext.toLowerCase())) {
     return { verified: false, confidence: 0, reason: "Нужно фото (JPG/PNG)" };
   }
 
-  const stat = fs.statSync(photoPath);
-  if (stat.size < 10_000) {
+  if (buffer.length < 10_000) {
     return { verified: false, confidence: 0.2, reason: "Фото слишком маленькое" };
   }
 
@@ -128,10 +125,10 @@ export async function verifyWorkoutPhoto(
     (config.apiMode === "live" && !!config.openaiApiKey);
 
   if (useAi) {
-    return verifyWithOpenAi(photoPath, context);
+    return verifyWithOpenAi(buffer, ext, context);
   }
 
-  return verifyWithoutAi(stat.size);
+  return verifyWithoutAi(buffer.length);
 }
 
 function verifyWithoutAi(sizeBytes: number): PhotoVerifyResult {
@@ -189,12 +186,12 @@ function normalizeVerifyResult(raw: Partial<PhotoVerifyResult>): PhotoVerifyResu
 }
 
 async function verifyWithOpenAi(
-  photoPath: string,
+  buffer: Buffer,
+  ext: string,
   context?: PhotoVerifyContext
 ): Promise<PhotoVerifyResult> {
-  const buffer = fs.readFileSync(photoPath);
   const base64 = buffer.toString("base64");
-  const mime = photoPath.endsWith(".png") ? "image/png" : "image/jpeg";
+  const mime = ext.toLowerCase() === ".png" ? "image/png" : "image/jpeg";
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {

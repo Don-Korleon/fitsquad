@@ -1,7 +1,7 @@
 import { Router } from "express";
-import fs from "node:fs";
 import multer from "multer";
 import path from "node:path";
+import { v4 as uuidv4 } from "uuid";
 import { ACHIEVEMENTS, config } from "../../config.js";
 import {
   completeWorkout,
@@ -39,6 +39,7 @@ import {
   verifyWorkoutPhoto,
 } from "../../services/gamification.js";
 import { getUserPremiumInfo } from "../../services/premium.js";
+import { savePhotoBuffer } from "../../services/storage.js";
 import { resolveAppssVerifyCode, fetchBotCommandNames, APPSS_COMMAND } from "../../bot/appssVerify.js";
 import { createPremiumInvoiceLink } from "../../bot/premium.js";
 import { validateInitData } from "../../utils/telegramAuth.js";
@@ -46,7 +47,7 @@ import { validateInitData } from "../../utils/telegramAuth.js";
 export const apiRouter = Router();
 
 const upload = multer({
-  dest: config.uploadsDir,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith("image/")) cb(null, true);
@@ -401,15 +402,12 @@ apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) =
   }
 
   const ext = path.extname(req.file.originalname) || ".jpg";
-  const finalPath = path.join(config.uploadsDir, `${req.file.filename}${ext}`);
-  fs.renameSync(req.file.path, finalPath);
 
-  const result = await verifyWorkoutPhoto(finalPath, user.id, {
+  const result = await verifyWorkoutPhoto(req.file.buffer, ext, user.id, {
     exerciseName: view ? getExercise(view.exerciseSlug)?.name : undefined,
     exerciseSlug: view?.exerciseSlug,
   });
   if (!result.verified) {
-    fs.unlinkSync(finalPath);
     res.status(400).json({
       error: result.reason,
       reason: result.reason,
@@ -418,6 +416,7 @@ apiRouter.post("/workout/:id/verify", upload.single("photo"), async (req, res) =
     return;
   }
 
+  const finalPath = await savePhotoBuffer(req.file.buffer, `${uuidv4()}${ext}`);
   const fsBonus = await rewardPhotoVerified(user.id);
   await dbVerifyPhoto(workout.id, user.id, finalPath, fsBonus);
 

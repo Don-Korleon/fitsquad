@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import type { Bot, Context } from "grammy";
 import { ACHIEVEMENTS, config } from "../config.js";
@@ -34,6 +33,7 @@ import {
   rewardPhotoVerified,
   verifyWorkoutPhoto,
 } from "../services/gamification.js";
+import { savePhotoBuffer } from "../services/storage.js";
 import { withTimeout } from "../utils/helpers.js";
 import {
   createTeamNameKeyboard,
@@ -49,17 +49,15 @@ import { helpText, statsText, teamText, WELCOME_TEXT, workoutCompleteText } from
 import { premiumDescription, sendPremiumInvoice } from "./premium.js";
 import { isAppssAdmin, parseAppssStartParam, replyAppssVerifyCode } from "./appssVerify.js";
 
-async function downloadPhoto(bot: Bot, fileId: string): Promise<string> {
+async function downloadPhoto(bot: Bot, fileId: string): Promise<{ buffer: Buffer; ext: string }> {
   const file = await withTimeout(bot.api.getFile(fileId), 30_000, "getFile");
   const url = `https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`;
   const res = await withTimeout(fetch(url), 60_000, "downloadPhoto");
   if (!res.ok) throw new Error("Failed to download photo");
 
-  fs.mkdirSync(config.uploadsDir, { recursive: true });
   const ext = path.extname(file.file_path ?? ".jpg") || ".jpg";
-  const localPath = path.join(config.uploadsDir, `${fileId}${ext}`);
-  fs.writeFileSync(localPath, Buffer.from(await res.arrayBuffer()));
-  return localPath;
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return { buffer, ext };
 }
 
 async function buildStats(userId: number) {
@@ -433,8 +431,8 @@ export function registerHandlers(bot: Bot): void {
     await ctx.reply("📸 Проверяю фото...", menuReply());
 
     try {
-      const localPath = await downloadPhoto(bot, largest.file_id);
-      const result = await verifyWorkoutPhoto(localPath, ctx.from!.id, {
+      const { buffer, ext } = await downloadPhoto(bot, largest.file_id);
+      const result = await verifyWorkoutPhoto(buffer, ext, ctx.from!.id, {
         exerciseName: exercise?.name,
         exerciseSlug: view?.exerciseSlug,
       });
@@ -443,8 +441,9 @@ export function registerHandlers(bot: Bot): void {
         return;
       }
 
+      const photoPath = await savePhotoBuffer(buffer, `${largest.file_id}${ext}`);
       const fsBonus = await rewardPhotoVerified(ctx.from!.id);
-      await dbVerifyPhoto(workout.id, ctx.from!.id, localPath, fsBonus);
+      await dbVerifyPhoto(workout.id, ctx.from!.id, photoPath, fsBonus);
 
       await ctx.reply(
         `✅ Фото верифицировано!\n+${fsBonus} FS 💎\n\n_${result.reason}_`,
